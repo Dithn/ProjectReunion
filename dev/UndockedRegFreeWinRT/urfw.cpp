@@ -9,6 +9,8 @@
 #include <activation.h>
 #include <VersionHelpers.h>
 
+#include <IsWindowsVersion.h>
+
 #include "urfw.h"
 
 #include "catalog.h"
@@ -58,18 +60,18 @@ static decltype(RoGetActivationFactory)* TrueRoGetActivationFactory = RoGetActiv
 static decltype(RoGetMetaDataFile)* TrueRoGetMetaDataFile = RoGetMetaDataFile;
 static decltype(RoResolveNamespace)* TrueRoResolveNamespace = RoResolveNamespace;
 
+static bool g_apisAreDetoured{};
+
 enum class ActivationLocation
 {
     CurrentApartment,
     CrossApartmentMTA
 };
 
-VOID CALLBACK EnsureMTAInitializedCallBack
-(
+VOID CALLBACK EnsureMTAInitializedCallBack(
     PTP_CALLBACK_INSTANCE /*instance*/,
     PVOID                 /*parameter*/,
-    PTP_WORK              /*work*/
-)
+    PTP_WORK              /*work*/)
 {
     Microsoft::WRL::ComPtr<IComThreadingInfo> spThreadingInfo;
     CoGetObjectContext(IID_PPV_ARGS(&spThreadingInfo));
@@ -343,9 +345,11 @@ HRESULT ExtRoLoadCatalog()
     if ((hActCtx == INVALID_HANDLE_VALUE) || (hActCtx == nullptr))
     {
         const auto lastError{ GetLastError() };
-        if (lastError == ERROR_RESOURCE_DATA_NOT_FOUND)
+        if ((lastError == ERROR_RESOURCE_DATA_NOT_FOUND) || (lastError == ERROR_RESOURCE_TYPE_NOT_FOUND))
         {
-            // Not found == Nothing to do!
+            // No resources in the executable (ERROR_RESOURCE_DATA_NOT_FOUND) or there are resources
+            // but not an embedded SxS manifest we're looking for (ERROR_RESOURCE_TYPE_NOT_FOUND).
+            // Either way it's Not Found == Nothing to do!
             return S_OK;
         }
         RETURN_WIN32(lastError);
@@ -401,12 +405,32 @@ HRESULT ExtRoLoadCatalog()
     return S_OK;
 }
 
+static bool UrfwUseOSImplementation() noexcept
+{
+    // Delegate to the OS' implementation on >= Windows 11 24H1
+    return WindowsVersion::IsWindows11_24H1OrGreater();
+}
+
+bool UrfwNeedsDetours() noexcept
+{
+    // Detour to our own implementation if Windows doesn't provide a sufficient implementation
+    return !UrfwUseOSImplementation();
+}
+
 HRESULT UrfwInitialize() noexcept
 {
+    // Delegate to the OS' implementation if we can
+    if (UrfwUseOSImplementation())
+    {
+        return S_OK;
+    }
+
+    // OS Reg-Free WinRT isn't available so let's do it ourselves...
     DetourAttach(&(PVOID&)TrueRoActivateInstance, RoActivateInstanceDetour);
     DetourAttach(&(PVOID&)TrueRoGetActivationFactory, RoGetActivationFactoryDetour);
     DetourAttach(&(PVOID&)TrueRoGetMetaDataFile, RoGetMetaDataFileDetour);
     DetourAttach(&(PVOID&)TrueRoResolveNamespace, RoResolveNamespaceDetour);
+    g_apisAreDetoured = true;
     try
     {
         RETURN_IF_FAILED(ExtRoLoadCatalog());
@@ -420,10 +444,14 @@ HRESULT UrfwInitialize() noexcept
 
 void UrfwShutdown() noexcept
 {
-    DetourDetach(&(PVOID&)TrueRoActivateInstance, RoActivateInstanceDetour);
-    DetourDetach(&(PVOID&)TrueRoGetActivationFactory, RoGetActivationFactoryDetour);
-    DetourDetach(&(PVOID&)TrueRoGetMetaDataFile, RoGetMetaDataFileDetour);
-    DetourDetach(&(PVOID&)TrueRoResolveNamespace, RoResolveNamespaceDetour);
+    if (g_apisAreDetoured)
+    {
+        DetourDetach(&(PVOID&)TrueRoActivateInstance, RoActivateInstanceDetour);
+        DetourDetach(&(PVOID&)TrueRoGetActivationFactory, RoGetActivationFactoryDetour);
+        DetourDetach(&(PVOID&)TrueRoGetMetaDataFile, RoGetMetaDataFileDetour);
+        DetourDetach(&(PVOID&)TrueRoResolveNamespace, RoResolveNamespaceDetour);
+        g_apisAreDetoured = false;
+    }
 }
 
 extern "C" void WINAPI winrtact_Initialize()

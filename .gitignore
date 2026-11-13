@@ -10,6 +10,9 @@
 *.userosscache
 *.sln.docstates
 
+# Backup files
+*.[Bb][Aa][Kk]
+
 # full nuget directory
 [Bb]uild/FullNuget
 
@@ -40,8 +43,11 @@ bld/
 # Uncomment if you have tasks that create the project's static files in wwwroot
 #wwwroot/
 
-# Visual Studio code
-.vscode/
+# Visual Studio Code - ignore folder but keep specific config files
+.vscode/*
+!.vscode/mcp.json
+!.vscode/settings.json
+!.vscode/tasks.json
 
 # Visual Studio 2017 auto generated files
 Generated\ Files/
@@ -201,6 +207,8 @@ PublishScripts/
 *.nupkg
 # NuGet Symbol Packages
 *.snupkg
+# Visual Studio Extension build output (source files are *.vsixmanifest, not affected)
+*.vsix
 # The packages folder can be ignored because of Package Restore
 **/[Pp]ackages/*
 # except build/, which is used as an MSBuild target.
@@ -210,6 +218,8 @@ PublishScripts/
 # NuGet v3's project.json files produces more ignorable files
 *.nuget.props
 *.nuget.targets
+# except our intentionally checked in local repository
+!tools/nuget/*.nupkg
 
 # Microsoft Azure Build Output
 csx/
@@ -393,3 +403,6 @@ build/override/
 # WindowsAppSDK specific files
 Microsoft.WinUI.AppX.targets
 !dev/vsix/**/*.pubxml
+# Project templates ship publish profiles as template content, so they must be
+# committed despite the blanket *.pubxml rule above.
+!dev/Templates/**/*.pubxml

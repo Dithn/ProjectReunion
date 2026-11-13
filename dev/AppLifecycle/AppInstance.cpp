@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors.
+// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
 #include <pch.h>
@@ -96,7 +96,13 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
         return { kind, data };
     }
 
-    AppInstance::AppInstance(uint32_t processId)
+    AppInstance::AppInstance() :
+        AppInstance(GetCurrentProcessId(), {})
+    {
+    }
+
+    AppInstance::AppInstance(uint32_t processId, wil::unique_handle processHandle) :
+        m_instanceHandle(std::move(processHandle))
     {
         m_processId = processId;
         m_isCurrent = (GetCurrentProcessId() == processId);
@@ -146,7 +152,7 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
         }
         else
         {
-            m_instanceHandle.reset(OpenProcess(SYNCHRONIZE, FALSE, processId));
+            THROW_HR_IF(E_INVALIDARG, !m_instanceHandle);
 
             // Create a monitor thread to handle cleaning up this instance if the backing process terminates.
             auto onInstanceTerminated = [](_In_ void* context, _In_ BOOLEAN /*reason*/) -> void
@@ -171,6 +177,7 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
     GUID AppInstance::DequeueRedirectionRequestId()
     {
         auto releaseOnExit = m_dataMutex.acquire();
+        AppLifecycleTelemetry::DequeueRedirectionRequestId();
         auto id = m_redirectionArgs.Dequeue();
         return id;
     }
@@ -178,16 +185,19 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
     void AppInstance::EnqueueRedirectionRequestId(GUID id)
     {
         auto releaseOnExit = m_dataMutex.acquire();
+        AppLifecycleTelemetry::EnqueueRedirectionRequestId(id);
         m_redirectionArgs.Enqueue(id);
     }
 
     void AppInstance::ProcessRedirectionRequests()
     {
+        auto activity{ AppLifecycleTelemetry::ProcessRedirectionRequests::Start(m_processId, m_isCurrent) };
         m_innerActivated.ResetEvent();
 
         GUID id;
         while ((id = DequeueRedirectionRequestId()) != GUID_NULL)
         {
+            activity.DequeueRedirectionRequest(id);
             wil::unique_cotaskmem_string idString;
             THROW_IF_FAILED(StringFromCLSID(id, &idString));
 
@@ -199,6 +209,7 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 
             // Notify the app that the redirection request is here.
             m_activatedEvent(*this, args);
+            activity.RedirectionActivatedEvent(id);
 
             std::wstring eventName = name + c_activatedEventNameSuffix;
             wil::unique_event cleanupEvent;
@@ -207,7 +218,10 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
                 // If the event is missing, it means the waiter gave up.  Ignore the error.
                 cleanupEvent.SetEvent();
             }
+            activity.RequestCleanupEvent(id);
         }
+
+        activity.Stop();
     }
 
     IAsyncAction AppInstance::QueueRequest(AppLifecycle::AppActivationArguments args)
@@ -229,6 +243,7 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 
         GUID id;
         THROW_IF_FAILED(CoCreateGuid(&id));
+        auto activity{ AppLifecycleTelemetry::QueueRequest::Start(m_processId, m_isCurrent, id) };
 
         wil::unique_cotaskmem_string idString;
         THROW_IF_FAILED(StringFromCLSID(id, &idString));
@@ -248,9 +263,11 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 
         // Signal the activation.
         m_innerActivated.SetEvent();
+        activity.InnerActivatedEvent(id);
 
         // Wait for the other instance to open the memory mapped file before exiting and cleaning our interest in it.
         cleanupEvent.wait();
+        activity.Stop();
         co_return;
     }
 
@@ -266,7 +283,7 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
     {
         auto initInstance = []
         {
-            s_current = winrt::make_self<AppInstance>(GetCurrentProcessId());
+            s_current = winrt::make_self<AppInstance>();
         };
 
         wil::init_once(s_initOnce, initInstance);
@@ -274,7 +291,7 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
         return s_current.as<Microsoft::Windows::AppLifecycle::AppInstance>();
     }
 
-    IVector<Microsoft::Windows::AppLifecycle::AppInstance> AppInstance::GetInstances()
+    HRESULT AppInstance::GetInstancesImpl(IVector<Microsoft::Windows::AppLifecycle::AppInstance>& instancesOut) noexcept try
     {
         // Force the singleton init.
         GetCurrent();
@@ -307,10 +324,10 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
             }
             else
             {
-                wil::unique_handle process(::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
+                wil::unique_handle process(::OpenProcess(SYNCHRONIZE, FALSE, pid));
                 if (process != nullptr)
                 {
-                    instances.Append(make<AppInstance>(pid));
+                    instances.Append(make<AppInstance>(pid, std::move(process)));
                 }
                 else
                 {
@@ -321,6 +338,19 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
             }
         }
 
+        instancesOut = instances;
+        return S_OK;
+    }
+    CATCH_RETURN()
+
+    IVector<Microsoft::Windows::AppLifecycle::AppInstance> AppInstance::GetInstances()
+    {
+        // Delegate to the noexcept GetInstancesImpl worker and rethrow any failure
+        // HRESULT cleanly via wil::ResultException. This avoids the deep WIL
+        // FormatMessage-based exception logging chain that caused stack overflow on
+        // the hot path (Bug 61688595).
+        IVector<Microsoft::Windows::AppLifecycle::AppInstance> instances{ nullptr };
+        THROW_IF_FAILED(GetInstancesImpl(instances));
         return instances;
     }
 
@@ -559,11 +589,13 @@ namespace winrt::Microsoft::Windows::AppLifecycle::implementation
 
     event_token AppInstance::Activated(EventHandler<Microsoft::Windows::AppLifecycle::AppActivationArguments> const& handler)
     {
+        AppLifecycleTelemetry::ActivatedEventAdd(m_processId);
         return m_activatedEvent.add(handler);
     }
 
     void AppInstance::Activated(event_token const& token) noexcept
     {
+        AppLifecycleTelemetry::ActivatedEventRemove(m_processId);
         m_activatedEvent.remove(token);
     }
 

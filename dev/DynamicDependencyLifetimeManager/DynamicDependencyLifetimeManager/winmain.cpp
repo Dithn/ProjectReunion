@@ -7,6 +7,10 @@
 
 #include <DynamicDependencyLifetimeManager_h.h>
 
+// Including this file once per binary will automatically opt WIL error handling macros into calling RoOriginateError when they
+// begin logging a new error.  This greatly improves the debuggability of errors that propagate before a failfast.
+#include <wil/result_originate.h>
+
 #include <wrl\module.h>
 
 using namespace Microsoft::WRL;
@@ -34,7 +38,7 @@ struct __declspec(uuid(PR_DYNDEP_LIFETIMEMANAGER_CLSID_STRING)) DynamicDependenc
 
         WCHAR fullName[PACKAGE_FULL_NAME_MAX_LENGTH + 1]{};
         UINT32 fullNameLength = ARRAYSIZE(fullName);
-        RETURN_IF_FAILED(GetCurrentPackageFullName(&fullNameLength, fullName));
+        RETURN_IF_FAILED(::GetCurrentPackageFullName(&fullNameLength, fullName));
         auto fullNameCoTaskMem = wil::make_cotaskmem_string_nothrow(fullName);
         RETURN_IF_NULL_ALLOC(fullNameCoTaskMem);
 
@@ -72,11 +76,16 @@ int WINAPI WinMain(HINSTANCE /*hInstance*/, HINSTANCE /*hPrevInstance*/, PSTR /*
     return 0;
 }
 
-STDAPI_(BOOL) DllMain(_In_opt_ HINSTANCE hinst, DWORD reason, _In_opt_ void*)
+STDAPI_(BOOL) DllMain(_In_opt_ HINSTANCE hinst, DWORD reason, _In_opt_ void* reserved)
 {
     if (reason == DLL_PROCESS_ATTACH)
     {
         DisableThreadLibraryCalls(hinst);
     }
+
+    // Give WIL a crack at DLLMain processing
+    // See DLLMain() in wil/result_macros.h for why
+    wil::DLLMain(hinst, reason, reserved);
+
     return TRUE;
 }

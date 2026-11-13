@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors.
+// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
 #include "pch.h"
@@ -46,7 +46,7 @@ void Test::DynamicDependency::Test_WinRT::Create_Add_Architectures_Explicit()
     VerifyPackageInPackageGraph(expectedPackageFullName_WindowsAppRuntimeFramework, S_OK);
     VerifyPackageNotInPackageGraph(expectedPackageFullName_FrameworkMathAdd, S_OK);
     VerifyPathEnvironmentVariable(packagePath_WindowsAppRuntimeFramework, pathEnvironmentVariable.c_str());
-    VerifyPackageDependency(packageDependencyId_FrameworkMathAdd, S_OK, expectedPackageFullName_FrameworkMathAdd);
+    VerifyPackageDependency(packageDependencyId_FrameworkMathAdd, S_OK, winrt::hstring{});
 
     // -- Add
 
@@ -82,15 +82,17 @@ void Test::DynamicDependency::Test_WinRT::Create_Add_Architectures_Explicit()
 
     // -- Remove
 
+    WEX::Logging::Log::Comment(WEX::Common::String().Format(L"PackageDependencyContext(%llu).Remove()...", packageDependencyContext_FrameworkMathAdd.ContextId().Id));
     packageDependencyContext_FrameworkMathAdd.Remove();
 
     VerifyPackageInPackageGraph(expectedPackageFullName_WindowsAppRuntimeFramework, S_OK);
     VerifyPackageNotInPackageGraph(expectedPackageFullName_FrameworkMathAdd, S_OK);
     VerifyPathEnvironmentVariable(packagePath_WindowsAppRuntimeFramework, pathEnvironmentVariable.c_str());
-    VerifyPackageDependency(packageDependencyId_FrameworkMathAdd, S_OK, expectedPackageFullName_FrameworkMathAdd);
+    VerifyPackageDependency_Win11NotResolved(packageDependencyId_FrameworkMathAdd, S_OK, expectedPackageFullName_FrameworkMathAdd);
 
     // -- Delete
 
+    WEX::Logging::Log::Comment(WEX::Common::String().Format(L"PackageDependencyId(%s).Delete()...", packageDependency_FrameworkMathAdd.Id().c_str()));
     packageDependency_FrameworkMathAdd.Delete();
 
     VerifyPackageInPackageGraph(expectedPackageFullName_WindowsAppRuntimeFramework, S_OK);

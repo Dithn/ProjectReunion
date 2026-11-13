@@ -1,10 +1,20 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors.
+// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
 #ifndef __WINDOWSAPPRUNTIME_TEST_DIAGNOSTICS_H
 #define __WINDOWSAPPRUNTIME_TEST_DIAGNOSTICS_H
 
 #include <WexTestClass.h>
+
+#include <sddl.h>
+#include <appmodel.h>
+
+#include <filesystem>
+
+#include <wil\resource.h>
+#include <wil\token_helpers.h>
+
+#include <Security.IntegrityLevel.h>
 
 namespace Test::Diagnostics
 {
@@ -31,9 +41,7 @@ inline void DumpUser(PCWSTR context, _In_ HANDLE token, PSID userSid)
         VERIFY_WIN32_BOOL_SUCCEEDED(ConvertSidToStringSidW(userSid, &userSidAsString));
         WEX::Logging::Log::Comment(WEX::Common::String().Format(L"UserSid:%s %s", context, userSidAsString.get()));
 
-        wistd::unique_ptr<TOKEN_MANDATORY_LABEL> tokenMandatoryLabel;
-        VERIFY_SUCCEEDED(wil::get_token_information_nothrow(tokenMandatoryLabel, token));
-        const DWORD integrityLevel{ *GetSidSubAuthority((*tokenMandatoryLabel).Label.Sid, static_cast<DWORD>(static_cast<UCHAR>(*GetSidSubAuthorityCount((*tokenMandatoryLabel).Label.Sid) - 1))) };
+        const DWORD integrityLevel{ ::Security::IntegrityLevel::GetIntegrityLevel(token) };
         WEX::Logging::Log::Comment(WEX::Common::String().Format(L"IntegrityLevel: 0x%08X (%s)", integrityLevel, IntegrityLevelToString(integrityLevel)));
     }
     else

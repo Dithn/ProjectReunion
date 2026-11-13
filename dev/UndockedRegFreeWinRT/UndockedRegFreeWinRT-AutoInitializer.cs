@@ -19,7 +19,7 @@ namespace Microsoft.Windows.Foundation.UndockedRegFreeWinRTCS
 
     class AutoInitialize
     {
-        [global::System.Runtime.CompilerServices.ModuleInitializer]
+        // Called by WindowsAppRuntimeAutoInitializer.cs
         internal static void AccessWindowsAppSDK()
         {
             // No error handling needed as the target function does nothing (just {return S_OK}).

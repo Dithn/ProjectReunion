@@ -1,9 +1,10 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors.
+// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
 #include <pch.h>
 
 #include "catalog.h"
+#include "Microsoft.Utf8.h"
 #include "TypeResolution.h"
 
 #include <activation.h>
@@ -11,6 +12,7 @@
 #include <rometadata.h>
 
 #include <wrl.h>
+#include <cstdlib>
 
 #include <../DynamicDependency/API/MddWinRT.h>
 
@@ -31,8 +33,8 @@ struct component
     wstring module_name;
     wstring xmlns;
     HMODULE handle = nullptr;
-    activation_factory_type get_activation_factory;
-    ABI::Windows::Foundation::ThreadingType threading_model;
+    activation_factory_type get_activation_factory{};
+    ABI::Windows::Foundation::ThreadingType threading_model{ ABI::Windows::Foundation::ThreadingType::ThreadingType_BOTH };
 
     ~component()
     {
@@ -125,11 +127,26 @@ HRESULT LoadFromEmbeddedManifest(PCWSTR path)
 
 HRESULT WinRTLoadComponentFromFilePath(PCWSTR manifestPath)
 {
-    ComPtr<IStream> fileStream;
-    RETURN_IF_FAILED(SHCreateStreamOnFileEx(manifestPath, STGM_READ, FILE_ATTRIBUTE_NORMAL, FALSE, nullptr, &fileStream));
     try
     {
-        return ParseRootManifestFromXmlReaderInput(fileStream.Get());
+        wil::unique_hfile file{ ::CreateFileW(manifestPath, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr) };
+        RETURN_HR_IF(HRESULT_FROM_WIN32(GetLastError()), !file);
+
+        LARGE_INTEGER fileSize{};
+        RETURN_IF_WIN32_BOOL_FALSE(::GetFileSizeEx(file.get(), &fileSize));
+        const auto dataSize{ fileSize.QuadPart };
+        RETURN_HR_IF(HRESULT_FROM_WIN32(ERROR_INVALID_DATA), dataSize > INT32_MAX);
+        RETURN_HR_IF(HRESULT_FROM_WIN32(ERROR_SXS_XML_E_UNEXPECTEDEOF), dataSize == 0);
+
+        const auto bufferSize{ static_cast<DWORD>(dataSize) + 1 };
+        std::unique_ptr<char[]> buffer{ std::make_unique<char[]>(bufferSize) };
+
+        DWORD bytesRead{};
+        RETURN_IF_WIN32_BOOL_FALSE(::ReadFile(file.get(), buffer.get(), bufferSize, &bytesRead, nullptr));
+        file.reset();
+        buffer[bytesRead] = '\0';
+
+        return WinRTLoadComponentFromString(std::string_view(buffer.get(), bytesRead));
     }
     catch(...)
     {
@@ -138,18 +155,61 @@ HRESULT WinRTLoadComponentFromFilePath(PCWSTR manifestPath)
     }
 }
 
+// The base directory is communicated via the MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY process
+// environment variable, which is inherited by child processes spawned via CreateProcess. Its owner
+// also stamps its process id in MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY_PID. Honor the base
+// directory only when that stamp matches the current process; otherwise it was inherited from a
+// parent and must not steer this process's SxS DLL redirection.
+// See https://github.com/microsoft/WindowsAppSDK/issues/5987.
+static bool IsBaseDirectoryStampedByCurrentProcess()
+{
+    wchar_t stampedPidText[16]{};
+    const DWORD length{ ::GetEnvironmentVariableW(
+        L"MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY_PID", stampedPidText, ARRAYSIZE(stampedPidText)) };
+    if ((length == 0) || (length >= ARRAYSIZE(stampedPidText)))
+    {
+        // Not stamped (absent) or unexpectedly long: do not honor the base directory.
+        return false;
+    }
+
+    return static_cast<DWORD>(wcstoul(stampedPidText, nullptr, 10)) == ::GetCurrentProcessId();
+}
+
 HRESULT WinRTLoadComponentFromString(std::string_view xmlStringValue)
 {
-    ComPtr<IStream> xmlStream;
-    auto xmlStringValueData{ xmlStringValue.data() };
-    auto xmlStringValueDataLength{ strlen(xmlStringValueData) };
-    auto xmlStringValueDataSize{ xmlStringValueDataLength * sizeof(*xmlStringValueData) };
-    xmlStream.Attach(SHCreateMemStream(reinterpret_cast<const BYTE*>(xmlStringValue.data()), static_cast<UINT>(xmlStringValueDataSize)));
-    RETURN_HR_IF_NULL(E_OUTOFMEMORY, xmlStream);
-    ComPtr<IXmlReaderInput> xmlReaderInput;
-    RETURN_IF_FAILED(CreateXmlReaderInputWithEncodingName(xmlStream.Get(), nullptr, L"utf-8", FALSE, nullptr, &xmlReaderInput));
     try
     {
+        auto wideXmlString = ::Microsoft::Utf8::ToUtf16(xmlStringValue.data());
+
+        // MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY is a process environment variable and is
+        // inherited across CreateProcess. Honor it only when this process stamped it; otherwise strip
+        // the token so redirection falls back to the application directory (the non-PublishSingleFile
+        // behavior) rather than a directory inherited from a parent process.
+        // See https://github.com/microsoft/WindowsAppSDK/issues/5987.
+        if (!IsBaseDirectoryStampedByCurrentProcess())
+        {
+            const std::wstring baseDirectoryToken{ L"%MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY%" };
+            for (size_t pos{ wideXmlString.find(baseDirectoryToken) };
+                pos != std::wstring::npos;
+                pos = wideXmlString.find(baseDirectoryToken, pos))
+            {
+                wideXmlString.erase(pos, baseDirectoryToken.size());
+            }
+        }
+
+        // Expand any env vars, such as %MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY% in asmv3:file.loadFrom
+        auto expandedSize = ExpandEnvironmentStringsW(wideXmlString.data(), nullptr, 0);
+        RETURN_HR_IF(HRESULT_FROM_WIN32(GetLastError()), expandedSize == 0);
+        std::unique_ptr<WCHAR[]> expanded{ std::make_unique<WCHAR[]>(expandedSize) };
+        expandedSize = ExpandEnvironmentStringsW(wideXmlString.data(), expanded.get(), expandedSize);
+        RETURN_HR_IF(HRESULT_FROM_WIN32(GetLastError()), expandedSize == 0);
+
+        ComPtr<IStream> xmlStream;
+        xmlStream.Attach(SHCreateMemStream(reinterpret_cast<const BYTE*>(expanded.get()), static_cast<UINT>(expandedSize * sizeof(WCHAR))));
+        RETURN_HR_IF_NULL(E_OUTOFMEMORY, xmlStream);
+        ComPtr<IXmlReaderInput> xmlReaderInput;
+        RETURN_IF_FAILED(CreateXmlReaderInputWithEncodingName(xmlStream.Get(), nullptr, L"UCS-2", FALSE, nullptr, &xmlReaderInput));
+
         return ParseRootManifestFromXmlReaderInput(xmlReaderInput.Get());
     }
     catch (...)
@@ -185,16 +245,47 @@ HRESULT ParseRootManifestFromXmlReaderInput(IUnknown* input)
 
 HRESULT ParseFileTag(IXmlReader* xmlReader)
 {
-    HRESULT hr = S_OK;
-    XmlNodeType nodeType;
     PCWSTR localName = nullptr;
     PCWSTR value = nullptr;
-    hr = xmlReader->MoveToAttributeByName(L"name", nullptr);
-    RETURN_HR_IF(HRESULT_FROM_WIN32(ERROR_SXS_MANIFEST_PARSE_ERROR), hr != S_OK);
-    RETURN_IF_FAILED(xmlReader->GetValue(&value, nullptr));
-    std::wstring fileName{ !value ? L"" : value };
-    RETURN_HR_IF(HRESULT_FROM_WIN32(ERROR_SXS_MANIFEST_PARSE_ERROR), fileName.empty());
+    std::wstring fileName;
     auto locale = _create_locale(LC_ALL, "C");
+    HRESULT hr = xmlReader->MoveToFirstAttribute();
+    if (S_FALSE == hr)
+    {
+        return HRESULT_FROM_WIN32(ERROR_SXS_MANIFEST_PARSE_ERROR);
+    }
+    else
+    {
+        while (TRUE)
+        {
+            if (FAILED_LOG(xmlReader->GetLocalName(&localName, NULL)))
+            {
+                return HRESULT_FROM_WIN32(ERROR_SXS_MANIFEST_PARSE_ERROR);
+            }
+            if (FAILED_LOG(xmlReader->GetValue(&value, NULL)))
+            {
+                return HRESULT_FROM_WIN32(ERROR_SXS_MANIFEST_PARSE_ERROR);
+            }
+            if (localName != nullptr)
+            {
+                if ((_wcsicmp_l(L"name", localName, locale) == 0) && fileName.empty())
+                {
+                    fileName = value;
+                }
+                else if (_wcsicmp_l(L"loadFrom", localName, locale) == 0)
+                {
+                    // override bare filename with fully qualified loadFrom path if supplied
+                    fileName = value;
+                }
+            }
+            if (xmlReader->MoveToNextAttribute() != S_OK)
+            {
+                break;
+            }
+        }
+    }
+    RETURN_HR_IF(HRESULT_FROM_WIN32(ERROR_SXS_MANIFEST_PARSE_ERROR), fileName.empty());
+    XmlNodeType nodeType;
     while (S_OK == xmlReader->Read(&nodeType))
     {
         if (nodeType == XmlNodeType_Element)
@@ -220,10 +311,8 @@ HRESULT ParseActivatableClassTag(IXmlReader* xmlReader, PCWSTR fileName)
     auto this_component = make_shared<component>();
     this_component->module_name = fileName;
     HRESULT hr = xmlReader->MoveToFirstAttribute();
-    // Using this pattern intead of calling multiple MoveToAttributeByName improves performance
     const WCHAR* activatableClass = nullptr;
     const WCHAR* threadingModel = nullptr;
-    const WCHAR* xmlns = nullptr;
     if (S_FALSE == hr)
     {
         return HRESULT_FROM_WIN32(ERROR_SXS_MANIFEST_PARSE_ERROR);
@@ -251,10 +340,6 @@ HRESULT ParseActivatableClassTag(IXmlReader* xmlReader, PCWSTR fileName)
                 else if (_wcsicmp_l(L"name", pwszLocalName, locale) == 0)
                 {
                     activatableClass = pwszValue;
-                }
-                else if (_wcsicmp_l(L"xmlns", pwszLocalName, locale) == 0)
-                {
-                    xmlns = pwszValue;
                 }
             }
             if (xmlReader->MoveToNextAttribute() != S_OK)
@@ -288,7 +373,6 @@ HRESULT ParseActivatableClassTag(IXmlReader* xmlReader, PCWSTR fileName)
     {
         return HRESULT_FROM_WIN32(ERROR_SXS_MANIFEST_PARSE_ERROR);
     }
-    this_component->xmlns = xmlns; // Should we care if this value is blank or missing?
     // Check for duplicate activatable classes
     auto component_iter = g_types.find(activatableClass);
     if (component_iter != g_types.end())

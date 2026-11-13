@@ -1,15 +1,21 @@
 param(
-    [Parameter(Position=0)] 
+    [Parameter(Position=0)]
     [string]$version = "",
     [switch]$skipLKG
 )
 
+Set-StrictMode -Version 3.0
+$ErrorActionPreference = 'Stop'
+
 $dotnetInstallScript = "$env:TEMP\dotnet-install.ps1"
 
 $repoInstallDir  = [System.IO.Path]::GetFullPath("$PSScriptRoot\..\.dotnet")
-$versionPropsFilePropertyGroup = ([xml](Get-Content -Raw "$PSScriptRoot\..\..\..\eng\versions.props")).Project.PropertyGroup
-$dotNetSdkVersion = $versionPropsFilePropertyGroup.CsWinRTDependencyDotNetCoreSdkPackageVersion
-$dotNetSdkVersionLkg =  if (-not $skipLKG) { $versionPropsFilePropertyGroup.CsWinRTDependencyDotNetCoreSdkLkgPackageVersion }
+$filename = "$PSScriptRoot\..\..\..\Directory.Packages.props"
+$xml = [xml](Get-Content $filename -EA:Stop)
+$ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
+$ns.AddNamespace("ms", "http://schemas.microsoft.com/developer/msbuild/2003")
+$dotNotSdkVersion = $xml.SelectSingleNode("//ms:CsWinRTDependencyDotNetCoreSdkPackageVersion", $ns).InnerText
+$dotNotSdkVersionLkg = if (-not $skipLKG) { $dotNotSdkVersion }
 
 if ($version -ne "")
 {
@@ -17,22 +23,22 @@ if ($version -ne "")
 }
 # Use-RunAs function from TechNet Script Gallery
 # https://gallery.technet.microsoft.com/scriptcenter/63fd1c0d-da57-4fb4-9645-ea52fc4f1dfb
-function Use-RunAs {    
-    # Check if script is running as Adminstrator and if not use RunAs 
-    # Use Check Switch to check if admin 
-    param([Switch]$Check) 
-     
-    $IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()` 
-        ).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator") 
-         
-    if ($Check) { 
-        return $IsAdmin 
-    }     
-    if ($MyInvocation.ScriptName -ne "") {  
-        if (-not $IsAdmin) {  
-          
-            try {  
-                $arg = "-file `"$($MyInvocation.ScriptName)`"" 
+function Use-RunAs {
+    # Check if script is running as Adminstrator and if not use RunAs
+    # Use Check Switch to check if admin
+    param([Switch]$Check)
+
+    $IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()`
+        ).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
+
+    if ($Check) {
+        return $IsAdmin
+    }
+    if ($MyInvocation.ScriptName -ne "") {
+        if (-not $IsAdmin) {
+
+            try {
+                $arg = "-file `"$($MyInvocation.ScriptName)`""
                 Write-Host "Installing .NET SDK (requires elevation)..."
 
                 Write-Verbose "$psHome\powershell.exe -Verb RunAs -ArgumentList $arg -ErrorAction 'stop' -Wait"
@@ -49,21 +55,21 @@ function Use-RunAs {
                     Write-Host "Installed SDK (x64) version $dotNetSdkVersionLkg to $x64InstallDir."
                     Write-Host "Installed SDK (x86) version $dotNetSdkVersionLkg to $x86InstallDir."
                 }
-            } 
-            catch { 
+            }
+            catch {
                 Write-Warning "Error - Failed to restart script with runas"
 
                 Write-Warning "$Error[0]"
-                break               
-            } 
-            Exit # Quit this session of powershell 
-        }  
-    }  
-    else {  
-        Write-Warning "Error - Script must be saved as a .ps1 file first"  
-        break  
-    }  
-} 
+                break
+            }
+            Exit # Quit this session of powershell
+        }
+    }
+    else {
+        Write-Warning "Error - Script must be saved as a .ps1 file first"
+        break
+    }
+}
 function Is-Installed
 {
     param ([string]$version)
@@ -139,7 +145,7 @@ function Install-SDK
     param ([string]$version, [string]$channel)
     . $dotnetInstallScript -Channel $channel -Version $version -InstallDir $x64InstallDir -Architecture x64
     Write-Host "Installed SDK (x64) version $version from channel $channel to $x64InstallDir."
-    
+
     . $dotnetInstallScript -Channel $channel -Version $version -InstallDir $x86InstallDir -Architecture x86
     Write-Host "Installed SDK (x86) version $version to $x86InstallDir."
 
@@ -150,11 +156,11 @@ Write-Host "Installing .NET SDK..."
 
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]'Ssl3,Tls,Tls11,Tls12'
 
-Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile $dotnetInstallScript
+Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile $dotnetInstallScript -UseBasicParsing
 
 if (-not $latestAlreadyInstalled)
 {
-    Install-SDK -version $dotNetSdkVersion -channel "release\5.0.1xx" 
+    Install-SDK -version $dotNetSdkVersion -channel "release\5.0.1xx"
 }
 
 if (-not $lkgAlreadyInstalled)

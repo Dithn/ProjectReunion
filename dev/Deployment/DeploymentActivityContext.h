@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors.
+// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
 #pragma once
@@ -19,10 +19,10 @@ namespace WindowsAppRuntime::Deployment::Activity
 
     struct WilFailure
     {
-        wil::FailureType type;
-        HRESULT hr;
+        wil::FailureType type { wil::FailureType::Exception };
+        HRESULT hr { S_OK };
         std::string file;
-        unsigned int lineNumber;
+        unsigned int lineNumber{ 0 };
         std::wstring message;
         std::string module;
     };
@@ -41,6 +41,10 @@ namespace WindowsAppRuntime::Deployment::Activity
 
     public:
         static WindowsAppRuntime::Deployment::Activity::Context& Get();
+
+        Context() = default;
+
+        Context(const Context&) = delete;
 
         void Reset();
 

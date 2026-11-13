@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors.
+// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
 #include "pch.h"
@@ -8,6 +8,8 @@
 #include "MddDetourPackageGraph.h"
 
 #include "PackageGraphManager.h"
+
+#include "MddWin11.h"
 
 #include <../Detours/detours.h>
 
@@ -108,8 +110,27 @@ HRESULT WINAPI DynamicGetPackageGraphRevisionId();
 
 typedef UINT32 (WINAPI* GetPackageGraphRevisionIdFunction)();
 
+static bool MddUseOSImplementation()
+{
+    // Use the Win11 APIs if available (instead of Detour'ing to our own implementation)
+    return MddCore::Win11::IsSupported();
+}
+
+bool MddNeedsDetours() noexcept
+{
+    // Detour to our own implementation if Windows doesn't provide a sufficient implementation
+    return !MddUseOSImplementation();
+}
+
 HRESULT WINAPI MddDetourPackageGraphInitialize() noexcept
 {
+    // Use the Win11 APIs if available (instead of Detour'ing to our own implementation)
+    if (MddUseOSImplementation())
+    {
+        RETURN_IF_FAILED(MddWin11Initialize());
+        return S_OK;
+    }
+
     // Detour package graph APIs to our implementation
     FAIL_FAST_IF_WIN32_ERROR(DetourUpdateThread(GetCurrentThread()));
     FAIL_FAST_IF_WIN32_ERROR(DetourAttach(&(PVOID&)TrueGetCurrentPackageInfo, DynamicGetCurrentPackageInfo));
@@ -160,6 +181,13 @@ HRESULT WINAPI MddDetourPackageGraphInitialize() noexcept
 
 HRESULT _MddDetourPackageGraphShutdown() noexcept
 {
+    // Use the Win11 APIs if available (instead of Detour'ing to our own implementation)
+    if (MddCore::Win11::IsSupported())
+    {
+        MddWin11Shutdown();
+        return S_OK;
+    }
+
     // Stop Detour'ing package graph APIs to our implementation (undo in reverse order we started Detour'ing APIs)
     if (TrueGetPackageGraphRevisionId)
     {

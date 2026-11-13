@@ -1,9 +1,12 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors.
+// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
 using System;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.Windows.ApplicationModel.Resources;
+using WEX.Common.Managed;
+using WEX.Logging.Interop;
+using WEX.TestExecution;
+using WEX.TestExecution.Markup;
 
 namespace ManagedTest
 {
@@ -69,6 +72,34 @@ namespace ManagedTest
         }
 
         [TestMethod]
+        [TestProperty("Ignore", "True")] // When run in the pipeline, WinAppSDK is not initialized and the test fails. MrtCoreUnpackagedTests validates this test.
+        public void ValueAsMemoryBufferTest_Succeeds()
+        {
+            CommonTestCode.ResourceManagerTest.ValueAsMemoryBufferTest_Succeeds();
+        }
+
+        [TestMethod]
+        [TestProperty("Ignore", "True")] // When run in the pipeline, WinAppSDK is not initialized and the test fails. MrtCoreUnpackagedTests validates this test.
+        public void ValueAsMemoryBufferTest_NonEmbeddedResource_Throws()
+        {
+            CommonTestCode.ResourceManagerTest.ValueAsMemoryBufferTest_NonEmbeddedResource_Throws();
+        }
+
+        [TestMethod]
+        [TestProperty("Ignore", "True")] // When run in the pipeline, WinAppSDK is not initialized and the test fails. MrtCoreUnpackagedTests validates this test.
+        public void ValueAsMemoryBufferTest_OutlivesCandidate()
+        {
+            CommonTestCode.ResourceManagerTest.ValueAsMemoryBufferTest_OutlivesCandidate();
+        }
+
+        [TestMethod]
+        [TestProperty("Ignore", "True")] // When run in the pipeline, WinAppSDK is not initialized and the test fails. MrtCoreUnpackagedTests validates this test.
+        public void ValueAsMemoryBufferTest_CloseReleases()
+        {
+            CommonTestCode.ResourceManagerTest.ValueAsMemoryBufferTest_CloseReleases();
+        }
+
+        [TestMethod]
         public void GetKindTest()
         {
             CommonTestCode.ResourceManagerTest.GetKindTest();
@@ -114,6 +145,18 @@ namespace ManagedTest
         public void ResourceEnumTest()
         {
             CommonTestCode.ResourceManagerTest.ResourceEnumTest();
+        }
+
+        [TestMethod]
+        public void GetValueFullUriTest()
+        {
+            CommonTestCode.ResourceManagerTest.GetValueFullUriTest();
+        }
+
+        [TestMethod]
+        public void GetSubtreeFullUriTest()
+        {
+            CommonTestCode.ResourceManagerTest.GetSubtreeFullUriTest();
         }
     }
 

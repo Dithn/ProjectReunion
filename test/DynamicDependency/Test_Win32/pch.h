@@ -17,6 +17,7 @@
 #include <wil/win32_helpers.h>
 #include <wil/resource.h>
 #include <wil/result_macros.h>
+#include <wil/filesystem.h>
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -34,11 +35,18 @@
 #include <MddBootstrapTest.h>
 
 #include <appmodel_msixdynamicdependency.h>
+#include <MddWin11.h>
 
 #include <WexTestClass.h>
 
+#include <appmodel.identity.h>
+#include <appmodel.packagegraph.h>
+#include <IsWindowsVersion.h>
+#include <security.integritylevel.h>
+
 #include "TestFilesystem.h"
 #include "TestPackages.h"
+#include <WindowsAppRuntime.Test.TAEF.h>
 
 #include <winrt/Microsoft.Test.DynamicDependency.Widgets.h>
 

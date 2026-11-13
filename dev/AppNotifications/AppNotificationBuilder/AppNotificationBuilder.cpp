@@ -1,7 +1,8 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors.
+// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
 #include "pch.h"
+#include "externs.h"
 #include "AppNotificationBuilder.h"
 #include "AppNotificationBuilderTelemetry.h"
 #include <winrt/Windows.Globalization.h>
@@ -84,7 +85,7 @@ namespace winrt::Microsoft::Windows::AppNotifications::Builder::implementation
             m_scenario = AppNotificationScenario::IncomingCall;
         }
         return *this;
-    }    
+    }
 
     winrt::Microsoft::Windows::AppNotifications::Builder::AppNotificationBuilder AppNotificationBuilder::SetAttributionText(hstring const& text)
     {
@@ -102,7 +103,7 @@ namespace winrt::Microsoft::Windows::AppNotifications::Builder::implementation
 
     winrt::Microsoft::Windows::AppNotifications::Builder::AppNotificationBuilder AppNotificationBuilder::SetInlineImage(winrt::Windows::Foundation::Uri const& imageUri)
     {
-        m_inlineImage = wil::str_printf<std::wstring>(L"<image src='%ls'/>", imageUri.ToString().c_str());
+        m_inlineImage = wil::str_printf<std::wstring>(L"<image src='%ls'/>", EncodeXml(imageUri.ToString()).c_str());
         return *this;
     }
 
@@ -110,7 +111,7 @@ namespace winrt::Microsoft::Windows::AppNotifications::Builder::implementation
     {
         if (imageCrop == AppNotificationImageCrop::Circle)
         {
-            m_inlineImage = wil::str_printf<std::wstring>(L"<image src='%ls' hint-crop='circle'/>", imageUri.ToString().c_str());
+            m_inlineImage = wil::str_printf<std::wstring>(L"<image src='%ls' hint-crop='circle'/>", EncodeXml(imageUri.ToString()).c_str());
         }
         else
         {
@@ -124,15 +125,15 @@ namespace winrt::Microsoft::Windows::AppNotifications::Builder::implementation
     {
         THROW_HR_IF_MSG(E_INVALIDARG, alternateText.empty(), "You must provide an alternate text string calling SetInlineImage");
 
-        std::wstring hintCrop { imageCrop == AppNotificationImageCrop::Circle ? L" hint-crop='circle'" : L"" };
-        m_inlineImage = wil::str_printf<std::wstring>(L"<image src='%ls' alt='%ls'%ls/>", imageUri.ToString().c_str(), EncodeXml(alternateText).c_str(), hintCrop.c_str());
+        std::wstring hintCrop{ imageCrop == AppNotificationImageCrop::Circle ? L" hint-crop='circle'" : L"" };
+        m_inlineImage = wil::str_printf<std::wstring>(L"<image src='%ls' alt='%ls'%ls/>", EncodeXml(imageUri.ToString()).c_str(), EncodeXml(alternateText).c_str(), hintCrop.c_str());
 
         return *this;
     }
 
     winrt::Microsoft::Windows::AppNotifications::Builder::AppNotificationBuilder AppNotificationBuilder::SetAppLogoOverride(winrt::Windows::Foundation::Uri const& imageUri)
     {
-        m_appLogoOverride = wil::str_printf<std::wstring>(L"<image placement='appLogoOverride' src='%ls'/>", imageUri.ToString().c_str());
+        m_appLogoOverride = wil::str_printf<std::wstring>(L"<image placement='appLogoOverride' src='%ls'/>", EncodeXml(imageUri.ToString()).c_str());
         return *this;
     }
 
@@ -140,7 +141,7 @@ namespace winrt::Microsoft::Windows::AppNotifications::Builder::implementation
     {
         if (imageCrop == AppNotificationImageCrop::Circle)
         {
-            m_appLogoOverride = wil::str_printf<std::wstring>(L"<image placement='appLogoOverride' src='%ls' hint-crop='circle'/>", imageUri.ToString().c_str());
+            m_appLogoOverride = wil::str_printf<std::wstring>(L"<image placement='appLogoOverride' src='%ls' hint-crop='circle'/>", EncodeXml(imageUri.ToString()).c_str());
         }
         else
         {
@@ -155,14 +156,14 @@ namespace winrt::Microsoft::Windows::AppNotifications::Builder::implementation
         THROW_HR_IF_MSG(E_INVALIDARG, alternateText.empty(), "You must provide an alternate text string calling SetAppLogoOverride");
 
         std::wstring hintCrop{ imageCrop == AppNotificationImageCrop::Circle ? L" hint-crop='circle'" : L"" };
-        m_appLogoOverride = wil::str_printf<std::wstring>(L"<image placement='appLogoOverride' src='%ls' alt='%ls'%ls/>", imageUri.ToString().c_str(), EncodeXml(alternateText).c_str(), hintCrop.c_str());
+        m_appLogoOverride = wil::str_printf<std::wstring>(L"<image placement='appLogoOverride' src='%ls' alt='%ls'%ls/>", EncodeXml(imageUri.ToString()).c_str(), EncodeXml(alternateText).c_str(), hintCrop.c_str());
 
         return *this;
     }
 
     winrt::Microsoft::Windows::AppNotifications::Builder::AppNotificationBuilder AppNotificationBuilder::SetHeroImage(winrt::Windows::Foundation::Uri const& imageUri)
     {
-        m_heroImage = wil::str_printf<std::wstring>(L"<image placement='hero' src='%ls'/>", imageUri.ToString().c_str());
+        m_heroImage = wil::str_printf<std::wstring>(L"<image placement='hero' src='%ls'/>", EncodeXml(imageUri.ToString()).c_str());
         return *this;
     }
 
@@ -170,19 +171,19 @@ namespace winrt::Microsoft::Windows::AppNotifications::Builder::implementation
     {
         THROW_HR_IF_MSG(E_INVALIDARG, alternateText.empty(), "You must provide an alternate text string calling SetHeroImage");
 
-        m_heroImage = wil::str_printf<std::wstring>(L"<image placement='hero' src='%ls' alt='%ls'/>", imageUri.ToString().c_str(), EncodeXml(alternateText).c_str());
+        m_heroImage = wil::str_printf<std::wstring>(L"<image placement='hero' src='%ls' alt='%ls'/>", EncodeXml(imageUri.ToString()).c_str(), EncodeXml(alternateText).c_str());
         return *this;
     }
 
     winrt::Microsoft::Windows::AppNotifications::Builder::AppNotificationBuilder AppNotificationBuilder::SetAudioUri(winrt::Windows::Foundation::Uri const& audioUri)
     {
-        m_audio = wil::str_printf<std::wstring>(L"<audio src='%ls'/>", audioUri.ToString().c_str());
+        m_audio = wil::str_printf<std::wstring>(L"<audio src='%ls'/>", EncodeXml(audioUri.ToString()).c_str());
         return *this;
     }
 
     winrt::Microsoft::Windows::AppNotifications::Builder::AppNotificationBuilder AppNotificationBuilder::SetAudioUri(winrt::Windows::Foundation::Uri const& audioUri, AppNotificationAudioLooping const& loop)
     {
-        m_audio = wil::str_printf<std::wstring>(L"<audio src='%ls' loop='%ls'/>", audioUri.ToString().c_str(), loop == AppNotificationAudioLooping::Loop ? L"true" : L"false");
+        m_audio = wil::str_printf<std::wstring>(L"<audio src='%ls' loop='%ls'/>", EncodeXml(audioUri.ToString()).c_str(), loop == AppNotificationAudioLooping::Loop ? L"true" : L"false");
         return *this;
     }
 
@@ -210,7 +211,7 @@ namespace winrt::Microsoft::Windows::AppNotifications::Builder::implementation
 
         return *this;
     }
-    
+
     winrt::Microsoft::Windows::AppNotifications::Builder::AppNotificationBuilder AppNotificationBuilder::AddTextBox(hstring id)
     {
         ThrowIfMaxInputItemsExceeded();
@@ -370,42 +371,48 @@ namespace winrt::Microsoft::Windows::AppNotifications::Builder::implementation
 
     winrt::Microsoft::Windows::AppNotifications::AppNotification AppNotificationBuilder::BuildNotification()
     {
-        HRESULT hr{ S_OK };
+        auto logTelemetry{ AppNotificationBuilderTelemetry::BuildNotification::Start(g_telemetryHelper) };
 
-        auto logTelemetry{ wil::scope_exit([&]() {
-            AppNotificationBuilderTelemetry::LogBuildNotification(hr);
-        }) };
+        // Build the actions string and fill m_useButtonStyle
+        std::wstring actions{ GetActions() };
 
-        try
-        {
-            // Build the actions string and fill m_useButtonStyle
-            std::wstring actions{ GetActions() };
+        auto xmlResult{ wil::str_printf<std::wstring>(L"<toast%ls%ls%ls%ls%ls><visual><binding template='ToastGeneric'>%ls%ls%ls%ls%ls</binding></visual>%ls%ls</toast>",
+            m_timeStamp.c_str(),
+            GetDuration().c_str(),
+            GetScenario().c_str(),
+            GetArguments().c_str(),
+            GetButtonStyle().c_str(),
+            GetText().c_str(),
+            m_attributionText.c_str(),
+            GetCameraPreview().c_str(),
+            GetImages().c_str(),
+            GetProgressBars().c_str(),
+            m_audio.c_str(),
+            actions.c_str()) };
 
-            auto xmlResult{ wil::str_printf<std::wstring>(L"<toast%ls%ls%ls%ls%ls><visual><binding template='ToastGeneric'>%ls%ls%ls%ls</binding></visual>%ls%ls</toast>",
-                m_timeStamp.c_str(),
-                GetDuration().c_str(),
-                GetScenario().c_str(),
-                GetArguments().c_str(),
-                GetButtonStyle().c_str(),
-                GetText().c_str(),
-                m_attributionText.c_str(),
-                GetImages().c_str(),
-                GetProgressBars().c_str(),
-                m_audio.c_str(),
-                actions.c_str()) };
+        THROW_HR_IF_MSG(E_FAIL, xmlResult.size() > c_maxAppNotificationPayload, "Maximum payload size exceeded");
 
-            THROW_HR_IF_MSG(E_FAIL, xmlResult.size() > c_maxAppNotificationPayload, "Maximum payload size exceeded");
+        winrt::Microsoft::Windows::AppNotifications::AppNotification appNotification{ xmlResult };
+        appNotification.Tag(m_tag);
+        appNotification.Group(m_group);
 
-            winrt::Microsoft::Windows::AppNotifications::AppNotification appNotification{ xmlResult };
-            appNotification.Tag(m_tag);
-            appNotification.Group(m_group);
+        logTelemetry.Stop();
 
-            return appNotification;
-        }
-        catch (...)
-        {
-            hr = wil::ResultFromCaughtException();
-            throw;
-        }
+        return appNotification;
+    }
+
+    winrt::Microsoft::Windows::AppNotifications::Builder::AppNotificationBuilder AppNotificationBuilder::AddCameraPreview()
+    {
+        THROW_HR_IF(E_NOTIMPL, !AppNotificationConferencingConfig::IsCallingPreviewSupported());
+
+        THROW_HR_IF_MSG(E_INVALIDARG, m_useCameraPreview, "CameraPreview element is already added, only one is allowed");
+
+        m_useCameraPreview = true;
+        return *this;
+    }
+
+    std::wstring AppNotificationBuilder::GetCameraPreview()
+    {
+        return m_useCameraPreview ? L"<cameraPreview/>" : L"";
     }
 }

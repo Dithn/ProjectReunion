@@ -16,6 +16,8 @@
 #include "MRM.h"
 
 #include <memory>
+#include <string>
+#include <cstdlib>
 
 using namespace Microsoft::Resources;
 
@@ -28,11 +30,54 @@ typedef struct _MrmObjects
 } MrmObjects;
 
 constexpr wchar_t ResourceUriPrefix[] = L"ms-resource://";
-constexpr int ResourceUriPrefixLength = ARRAYSIZE(ResourceUriPrefix) - 1;
-constexpr wchar_t c_defaultPriFilename[] = L"resources.pri";
+constexpr unsigned int ResourceUriPrefixLength = ARRAYSIZE(ResourceUriPrefix) - 1;
+constexpr wchar_t ResourcesPriFileName[] = L"resources.pri";
 
 #define INDEX_RESOURCE_ID -1
 #define INDEX_RESOURCE_URI -2
+
+bool IsResourceUri(_In_ PCWSTR resourceId)
+{
+    return ((wcslen(resourceId) > static_cast<size_t>(ResourceUriPrefixLength)) && (CompareStringOrdinal(ResourceUriPrefix, ResourceUriPrefixLength, resourceId, ResourceUriPrefixLength, TRUE) == CSTR_EQUAL));
+}
+
+HRESULT GetRootAndRelativeIdFromUri(
+    _In_ PCWSTR resourceUri,
+    _Out_writes_z_(rootSize) PWSTR root,
+    unsigned int rootSize,
+    _Out_ unsigned int* indexOfRelatvieId)
+{
+    // We should have checked resourceUri length is longer than ResourceUriPrefixLength before calling this
+    unsigned int i = 0;
+    for (; i < rootSize; i++)
+    {
+        wchar_t currentCharacter = resourceUri[ResourceUriPrefixLength + i];
+        if (currentCharacter == L'\0')
+        {
+            // If the URI ends before it has any paths it is not a valid resource reference.
+            return E_INVALIDARG;
+        }
+
+        if (currentCharacter == L'/')
+        {
+            break;
+        }
+
+        root[i] = currentCharacter;
+    }
+
+    if (i == rootSize)
+    {
+        // The root resource map was too long.
+        return E_INVALIDARG;
+    }
+
+    root[i] = L'\0';
+
+    // The above loop ends at the slash, so go one after.
+    *indexOfRelatvieId = ResourceUriPrefixLength + i + 1;
+    return S_OK;
+}
 
 static HRESULT StringResultReleaseOwnershipBuffer(_Inout_ StringResult& result, _Outptr_ PWSTR* buffer)
 {
@@ -203,43 +248,17 @@ static HRESULT LoadResourceCandidate(
 
     if (index == INDEX_RESOURCE_URI)
     {
-        if ((wcslen(resourceIdOrUri) <= static_cast<size_t>(ResourceUriPrefixLength)) ||
-            (CompareStringOrdinal(ResourceUriPrefix, ResourceUriPrefixLength, resourceIdOrUri, ResourceUriPrefixLength, TRUE) !=
-             CSTR_EQUAL))
+        if (!IsResourceUri(resourceIdOrUri))
         {
             return E_INVALIDARG;
         }
 
         // Root resource maps are the authority of the URI, and are limited to 255 characters.
         wchar_t rootResourceMap[256] = {};
-        unsigned int i = 0;
-        for (; i < ARRAYSIZE(rootResourceMap); i++)
-        {
-            wchar_t currentCharacter = resourceIdOrUri[ResourceUriPrefixLength + i];
-            if (currentCharacter == L'\0')
-            {
-                // If the URI ends before it has any paths it is not a valid resource reference.
-                return E_INVALIDARG;
-            }
-
-            if (currentCharacter == L'/')
-            {
-                break;
-            }
-
-            rootResourceMap[i] = currentCharacter;
-        }
-
-        if (i == ARRAYSIZE(rootResourceMap))
-        {
-            // The root resource map was too long.
-            return E_INVALIDARG;
-        }
-
-        rootResourceMap[i] = L'\0';
-
-        // The above loop ends at the slash, so go one after.
-        const wchar_t* relativeResourceId = &resourceIdOrUri[ResourceUriPrefixLength + i + 1];
+        unsigned int relativeIdIndex = 0;
+        RETURN_IF_FAILED(GetRootAndRelativeIdFromUri(resourceIdOrUri, rootResourceMap, ARRAYSIZE(rootResourceMap), &relativeIdIndex));
+        
+        const wchar_t* relativeResourceId = &resourceIdOrUri[relativeIdIndex];
         if (relativeResourceId[0] == L'\0')
         {
             // There needs to be a resource left.
@@ -248,7 +267,7 @@ static HRESULT LoadResourceCandidate(
 
         const IResourceMapBase* internalResourceMap;
 
-        if (i == 0)
+        if (rootResourceMap[0] == L'\0')
         {
             // In full MRT, ms-resource:/// is a valid shortcut that refers to the primary resource map. Retain this functionality here.
             RETURN_IF_FAILED(resourceManagerObjects->priFile->GetPrimaryResourceMap(&internalResourceMap));
@@ -390,10 +409,15 @@ static HRESULT LoadStringOrEmbeddedResource(
     _Outptr_opt_result_maybenull_ PWSTR* resourceName,
     _Out_opt_ UINT32* qualifierCount,
     _Outptr_opt_result_buffer_(*qualifierCount) PWSTR** qualifierNames,
-    _Outptr_opt_result_buffer_(*qualifierCount) PWSTR** qualifierValues)
+    _Outptr_opt_result_buffer_(*qualifierCount) PWSTR** qualifierValues,
+    _Out_opt_ bool* isView = nullptr)
 {
     data->data = nullptr;
     data->size = 0;
+    if (isView != nullptr)
+    {
+        *isView = false;
+    }
 
     ResourceCandidateResult candidate;
     PWSTR localName = nullptr;
@@ -422,8 +446,26 @@ static HRESULT LoadStringOrEmbeddedResource(
             return E_UNEXPECTED;
         }
 
-        // This ensures the blob result holds a copy of the data we can return to the caller, not a pointer to the PRI file.
-        RETURN_IF_FAILED(BlobResultReleaseOwnershipBuffer(blobResult, &data->data, &data->size));
+        // When the caller requested a view and the blob is a reference directly into the
+        // memory-mapped PRI (rather than an owned buffer produced by e.g. a decompressing reader),
+        // publish that pointer as a non-owning view. The pages are read-only and remain valid for
+        // the lifetime of the resource manager, which the caller is required to keep alive. If the
+        // blob is instead owned by the BlobResult, we must fall back to the copy path or the pointer
+        // would dangle once the local BlobResult is destroyed.
+        if ((isView != nullptr) && (blobResult.GetType() == DefResultType_Reference))
+        {
+            size_t referenceSizeInBytes = 0;
+            const void* reference = blobResult.GetRef(&referenceSizeInBytes);
+            RETURN_HR_IF_NULL(E_UNEXPECTED, reference);
+            data->data = const_cast<void*>(reference);
+            data->size = static_cast<UINT32>(referenceSizeInBytes);
+            *isView = true;
+        }
+        else
+        {
+            // This ensures the blob result holds a copy of the data we can return to the caller, not a pointer to the PRI file.
+            RETURN_IF_FAILED(BlobResultReleaseOwnershipBuffer(blobResult, &data->data, &data->size));
+        }
 
         *resourceString = nullptr;
         *resourceType = MrmType_Embedded;
@@ -664,26 +706,63 @@ STDAPI MrmGetChildResourceMap(
     _In_ PCWSTR childResourceMapName,
     _Out_ MrmMapHandle* childResourceMap)
 {
+    MrmObjects* resourceManagerObjects = reinterpret_cast<MrmObjects*>(resourceManager);
     const ResourceMapSubtree* originalMapSubtree;
-
-    if (resourceMap == nullptr)
+    if (IsResourceUri(childResourceMapName))
     {
-        MrmObjects* resourceManagerObjects = reinterpret_cast<MrmObjects*>(resourceManager);
+        // If a full URI is passed in, we will respect the URI instead of trying to get the child map.
+        
+        // Root resource maps are the authority of the URI, and are limited to 255 characters.
+        wchar_t rootResourceMap[256] = {};
+        unsigned int relativeIdIndex = 0;
+        RETURN_IF_FAILED(GetRootAndRelativeIdFromUri(childResourceMapName, rootResourceMap, ARRAYSIZE(rootResourceMap), &relativeIdIndex));
+        
+        const IResourceMapBase* internalRootResourceMap;
+        if (rootResourceMap[0] == L'\0')
+        {
+            // In full MRT, ms-resource:/// is a valid shortcut that refers to the primary resource map. Retain this functionality here.
+            RETURN_IF_FAILED(resourceManagerObjects->priFile->GetPrimaryResourceMap(&internalRootResourceMap));
+        }
+        else
+        {
+            RETURN_IF_FAILED(resourceManagerObjects->priFile->GetResourceMapById(rootResourceMap, &internalRootResourceMap));
+        }
 
-        const IResourceMapBase* internalResourceMap;
-        RETURN_IF_FAILED(resourceManagerObjects->priFile->GetPrimaryResourceMap(&internalResourceMap));
+        originalMapSubtree = internalRootResourceMap->GetRootSubtree();
 
-        originalMapSubtree = internalResourceMap->GetRootSubtree();
+        const wchar_t* relativeResourceId = &childResourceMapName[relativeIdIndex];
+        if (relativeResourceId[0] != L'\0')
+        {
+            const ResourceMapSubtree* childSubTree;
+            RETURN_IF_FAILED_WITH_EXPECTED(originalMapSubtree->GetSubtree(relativeResourceId, &childSubTree), HRESULT_FROM_WIN32(ERROR_MRM_MAP_NOT_FOUND));
+
+            *childResourceMap = reinterpret_cast<MrmMapHandle>(const_cast<ResourceMapSubtree*>(childSubTree));
+
+        }
+        else
+        {
+            *childResourceMap = reinterpret_cast<MrmMapHandle>(const_cast<ResourceMapSubtree*>(originalMapSubtree));
+        }
     }
     else
     {
-        originalMapSubtree = reinterpret_cast<ResourceMapSubtree*>(resourceMap);
+        if (resourceMap == nullptr)
+        {
+            const IResourceMapBase* internalResourceMap;
+            RETURN_IF_FAILED(resourceManagerObjects->priFile->GetPrimaryResourceMap(&internalResourceMap));
+
+            originalMapSubtree = internalResourceMap->GetRootSubtree();
+        }
+        else
+        {
+            originalMapSubtree = reinterpret_cast<ResourceMapSubtree*>(resourceMap);
+        }
+
+        const ResourceMapSubtree* childSubTree;
+        RETURN_IF_FAILED_WITH_EXPECTED(originalMapSubtree->GetSubtree(childResourceMapName, &childSubTree), HRESULT_FROM_WIN32(ERROR_MRM_MAP_NOT_FOUND));
+
+        *childResourceMap = reinterpret_cast<MrmMapHandle>(const_cast<ResourceMapSubtree*>(childSubTree));
     }
-
-    const ResourceMapSubtree* childSubTree;
-    RETURN_IF_FAILED_WITH_EXPECTED(originalMapSubtree->GetSubtree(childResourceMapName, &childSubTree), HRESULT_FROM_WIN32(ERROR_MRM_MAP_NOT_FOUND));
-
-    *childResourceMap = reinterpret_cast<MrmMapHandle>(const_cast<ResourceMapSubtree*>(childSubTree));
     return S_OK;
 }
 
@@ -761,9 +840,18 @@ STDAPI MrmLoadStringOrEmbeddedResource(
     _Outptr_result_maybenull_ PWSTR* resourceString,
     _Out_ MrmResourceData* data)
 {
-    RETURN_IF_FAILED_WITH_EXPECTED(LoadStringOrEmbeddedResource(
-        resourceManager, resourceContext, resourceMap, INDEX_RESOURCE_ID, resourceId, resourceType, resourceString, data, nullptr, nullptr, nullptr, nullptr),
-        HRESULT_FROM_WIN32(ERROR_MRM_NAMED_RESOURCE_NOT_FOUND));
+    if (IsResourceUri(resourceId))
+    {
+        RETURN_IF_FAILED_WITH_EXPECTED(LoadStringOrEmbeddedResource(
+            resourceManager, resourceContext, nullptr, INDEX_RESOURCE_URI, resourceId, resourceType, resourceString, data, nullptr, nullptr, nullptr, nullptr),
+            HRESULT_FROM_WIN32(ERROR_MRM_NAMED_RESOURCE_NOT_FOUND));
+    }
+    else
+    {
+        RETURN_IF_FAILED_WITH_EXPECTED(LoadStringOrEmbeddedResource(
+            resourceManager, resourceContext, resourceMap, INDEX_RESOURCE_ID, resourceId, resourceType, resourceString, data, nullptr, nullptr, nullptr, nullptr),
+            HRESULT_FROM_WIN32(ERROR_MRM_NAMED_RESOURCE_NOT_FOUND));
+    }
     return S_OK;
 }
 
@@ -779,20 +867,40 @@ STDAPI MrmLoadStringOrEmbeddedResourceWithQualifierValues(
     _Outptr_result_buffer_(*qualifierCount) PWSTR** qualifierNames,
     _Outptr_result_buffer_(*qualifierCount) PWSTR** qualifierValues)
 {
-    RETURN_IF_FAILED_WITH_EXPECTED(LoadStringOrEmbeddedResource(
-        resourceManager,
-        resourceContext,
-        resourceMap,
-        INDEX_RESOURCE_ID,
-        resourceId,
-        resourceType,
-        resourceString,
-        data,
-        nullptr,
-        qualifierCount,
-        qualifierNames,
-        qualifierValues),
-        HRESULT_FROM_WIN32(ERROR_MRM_NAMED_RESOURCE_NOT_FOUND));
+    if (IsResourceUri(resourceId))
+    {
+        RETURN_IF_FAILED_WITH_EXPECTED(LoadStringOrEmbeddedResource(
+            resourceManager,
+            resourceContext,
+            nullptr,
+            INDEX_RESOURCE_URI,
+            resourceId,
+            resourceType,
+            resourceString,
+            data,
+            nullptr,
+            qualifierCount,
+            qualifierNames,
+            qualifierValues),
+            HRESULT_FROM_WIN32(ERROR_MRM_NAMED_RESOURCE_NOT_FOUND));
+    }
+    else
+    {
+        RETURN_IF_FAILED_WITH_EXPECTED(LoadStringOrEmbeddedResource(
+            resourceManager,
+            resourceContext,
+            resourceMap,
+            INDEX_RESOURCE_ID,
+            resourceId,
+            resourceType,
+            resourceString,
+            data,
+            nullptr,
+            qualifierCount,
+            qualifierNames,
+            qualifierValues),
+            HRESULT_FROM_WIN32(ERROR_MRM_NAMED_RESOURCE_NOT_FOUND));
+    }
     return S_OK;
 }
 
@@ -856,6 +964,63 @@ STDAPI MrmLoadStringOrEmbeddedResourceByIndexWithQualifierValues(
 
 STDAPI_(void*) MrmAllocateBuffer(size_t size) { return Def_Alloc(size); }
 
+STDAPI MrmLoadStringOrEmbeddedResourceAsView(
+    _In_ MrmManagerHandle resourceManager,
+    _In_opt_ MrmContextHandle resourceContext,
+    _In_opt_ MrmMapHandle resourceMap,
+    _In_ PCWSTR resourceId,
+    _Out_ MrmType* resourceType,
+    _Outptr_result_maybenull_ PWSTR* resourceString,
+    _Out_ MrmResourceData2* data)
+{
+    data->data = nullptr;
+    data->size = 0;
+    data->isView = FALSE;
+
+    MrmResourceData base{};
+    bool isView = false;
+    if (IsResourceUri(resourceId))
+    {
+        RETURN_IF_FAILED_WITH_EXPECTED(LoadStringOrEmbeddedResource(
+            resourceManager, resourceContext, nullptr, INDEX_RESOURCE_URI, resourceId, resourceType, resourceString, &base, nullptr, nullptr, nullptr, nullptr, &isView),
+            HRESULT_FROM_WIN32(ERROR_MRM_NAMED_RESOURCE_NOT_FOUND));
+    }
+    else
+    {
+        RETURN_IF_FAILED_WITH_EXPECTED(LoadStringOrEmbeddedResource(
+            resourceManager, resourceContext, resourceMap, INDEX_RESOURCE_ID, resourceId, resourceType, resourceString, &base, nullptr, nullptr, nullptr, nullptr, &isView),
+            HRESULT_FROM_WIN32(ERROR_MRM_NAMED_RESOURCE_NOT_FOUND));
+    }
+    data->size = base.size;
+    data->data = base.data;
+    data->isView = isView ? TRUE : FALSE;
+    return S_OK;
+}
+
+STDAPI MrmLoadStringOrEmbeddedResourceByIndexAsView(
+    _In_ MrmManagerHandle resourceManager,
+    _In_opt_ MrmContextHandle resourceContext,
+    _In_opt_ MrmMapHandle resourceMap,
+    UINT32 index,
+    _Out_ MrmType* resourceType,
+    _Outptr_ PWSTR* resourceName,
+    _Outptr_result_maybenull_ PWSTR* resourceString,
+    _Out_ MrmResourceData2* data)
+{
+    data->data = nullptr;
+    data->size = 0;
+    data->isView = FALSE;
+
+    MrmResourceData base{};
+    bool isView = false;
+    RETURN_IF_FAILED(LoadStringOrEmbeddedResource(
+        resourceManager, resourceContext, resourceMap, index, nullptr, resourceType, resourceString, &base, resourceName, nullptr, nullptr, nullptr, &isView));
+    data->size = base.size;
+    data->data = base.data;
+    data->isView = isView ? TRUE : FALSE;
+    return S_OK;
+}
+
 STDAPI_(void) MrmFreeResource(_In_opt_ void* resource)
 {
     if (resource != nullptr)
@@ -864,6 +1029,47 @@ STDAPI_(void) MrmFreeResource(_In_opt_ void* resource)
     }
 
     return;
+}
+
+STDAPI_(void) MrmFreeResourceData(_Inout_opt_ MrmResourceData2* data)
+{
+    if (data == nullptr)
+    {
+        return;
+    }
+
+    // Views borrow memory owned by the resource manager's PRI mapping; nothing to free. Only owned
+    // buffers were allocated by the loader and must be released.
+    if (!data->isView && (data->data != nullptr))
+    {
+        Def_Free(data->data);
+    }
+
+    data->data = nullptr;
+    data->size = 0;
+    data->isView = FALSE;
+
+    return;
+}
+
+// The base directory is communicated via the MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY process
+// environment variable, which is inherited by child processes spawned via CreateProcess. Its owner
+// also stamps its process id in MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY_PID. Honor the base
+// directory only when that stamp matches the current process; otherwise it was inherited from a
+// parent and must be ignored (a child would otherwise resolve resources from the parent's directory).
+// See https://github.com/microsoft/WindowsAppSDK/issues/5987.
+static bool IsBaseDirectoryStampedByCurrentProcess()
+{
+    wchar_t stampedPidText[16]{};
+    const DWORD length{ ::GetEnvironmentVariableW(
+        L"MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY_PID", stampedPidText, ARRAYSIZE(stampedPidText)) };
+    if ((length == 0) || (length >= ARRAYSIZE(stampedPidText)))
+    {
+        // Not stamped (absent) or unexpectedly long: do not honor the base directory.
+        return false;
+    }
+
+    return static_cast<DWORD>(wcstoul(stampedPidText, nullptr, 10)) == ::GetCurrentProcessId();
 }
 
 // When filename is provided, append filename to current module path. If the file doesn't exist, it will
@@ -886,89 +1092,161 @@ STDAPI MrmGetFilePathFromName(_In_opt_ PCWSTR filename, _Outptr_ PWSTR* filePath
 {
     *filePath = nullptr;
 
-    wil::unique_cotaskmem_string path;
-    RETURN_IF_FAILED(wil::GetModuleFileNameW(nullptr, path));
+    wil::unique_cotaskmem_string exeDir;
+    RETURN_IF_FAILED(wil::GetModuleFileNameW(nullptr, exeDir));
+    PCWSTR exeName = wil::find_last_path_segment(exeDir.get());
+    wchar_t modulePriFileName[MAX_PATH];
+    RETURN_IF_FAILED(StringCchCopyW(modulePriFileName, ARRAYSIZE(modulePriFileName), *exeName ? exeName : exeDir.get()));
+    RETURN_IF_FAILED(PathCchRenameExtension(modulePriFileName, ARRAYSIZE(modulePriFileName), L"pri"));
+    size_t exeDirCount;
+    RETURN_IF_FAILED(StringCchLengthW(exeDir.get(), STRSAFE_MAX_CCH, &exeDirCount));
+    RETURN_IF_FAILED(SizeTAdd(exeDirCount, 1, &exeDirCount));
+    RETURN_IF_FAILED(PathCchRemoveFileSpec(exeDir.get(), exeDirCount));
 
-    PCWSTR name = wil::find_last_path_segment(path.get());
-    wchar_t moduleFilename[MAX_PATH];
-    RETURN_IF_FAILED(StringCchCopyW(moduleFilename, ARRAYSIZE(moduleFilename), *name ? name : path.get()));
+    // The ParentPathForFileName pass truncates exeDir in place to reach the parent folder, so
+    // preserve the original module directory here for the DefaultFallback pass, which must return
+    // a path under the module directory (the documented behavior).
+    std::wstring moduleDir(exeDir.get());
 
-    size_t length;
-    RETURN_IF_FAILED(StringCchLengthW(path.get(), STRSAFE_MAX_CCH, &length));
-
-    size_t bufferCount;
-    RETURN_IF_FAILED(SizeTAdd(length, 1, &bufferCount));
-
-    RETURN_IF_FAILED(PathCchRemoveFileSpec(path.get(), bufferCount));
-
-    std::unique_ptr<wchar_t, decltype(&MrmFreeResource)> finalPath(nullptr, MrmFreeResource);
-
-    PCWSTR filenameToUse = filename;
+    enum SearchPass
+    {
+        exeDirForFileName,
+        ParentPathForFileName,
+        BaseDirForResourcesPri,
+        BaseDirForModulePri,
+        exeDirForResourcesPri,
+        exeDirForModulePri,
+        DefaultFallback,
+        Final,
+    };
+    SearchPass searchStart = SearchPass::exeDirForFileName;
+    wil::unique_cotaskmem_string baseDir;
+    size_t baseDirCount{};
     if (filename == nullptr || *filename == L'\0')
     {
-        filenameToUse = c_defaultPriFilename;
+        searchStart = SearchPass::exeDirForResourcesPri;
+        // Honor MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY only when it was stamped by the current
+        // process. It is a process environment variable (inherited across CreateProcess), so without
+        // this guard a child would load the parent's resources.pri from the parent's base directory.
+        // When the stamp is foreign or absent, leave baseDir empty and fall back to the module (exe)
+        // directory (handled by the passes below and DefaultFallback).
+        // See https://github.com/microsoft/WindowsAppSDK/issues/5987.
+        if (IsBaseDirectoryStampedByCurrentProcess() &&
+            SUCCEEDED(wil::TryGetEnvironmentVariableW(L"MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY", baseDir)) && baseDir)
+        {
+            searchStart = SearchPass::BaseDirForResourcesPri;
+            RETURN_IF_FAILED(StringCchLengthW(baseDir.get(), STRSAFE_MAX_CCH, &baseDirCount));
+            RETURN_IF_FAILED(SizeTAdd(baseDirCount, 1, &baseDirCount));
+        }
     }
 
-    // Will build the path at most twice.
     // If filename is provided:
     //   - search under exe path
-    //   - if not exist, search parent path
+    //   - search parent path
     // If filename is not provided:
-    //   - search under exe path with default name (resources.pri)
-    //   - if not exist, search under same path with [modulename].pri
-    for (int i = 0; i < 2; i++)
+    //   - if baseDir exists
+    //      - search under baseDir for resources.pri
+    //      - search under baseDir for [modulename].pri
+    //   - if exeDir != baseDir
+    //      - search under exeDir for resources.pri
+    //      - search under exeDir for [modulename].pri
+    PWSTR searchDir{};
+    size_t searchDirCount{};
+    PCWSTR searchFilename{};
+    for (SearchPass pass = searchStart; pass < SearchPass::Final; pass = SearchPass(pass+1))
     {
-        size_t lengthOfName;
-        RETURN_IF_FAILED(StringCchLengthW(filenameToUse, STRSAFE_MAX_CCH, &lengthOfName));
+        switch(pass)
+        {
+            // Search, given FileName
+            case SearchPass::exeDirForFileName:
+                searchDir = exeDir.get();
+                searchDirCount = exeDirCount;
+                searchFilename = filename;
+                break;
+            case SearchPass::ParentPathForFileName:
+                // move to parent folder of previous search
+                RETURN_IF_FAILED(PathCchRemoveFileSpec(searchDir, searchDirCount));
+                // If the parent search misses, skip the no-FileName passes and fall through to
+                // DefaultFallback so we still return a best-effort path (the documented
+                // always-succeed contract). The loop's increment lands pass on DefaultFallback.
+                pass = SearchPass(SearchPass::DefaultFallback - 1);
+                break;
 
-        // We over-allocate a little bit so that we don't have to calculate the path length each time.
-        RETURN_IF_FAILED(SizeTAdd(bufferCount, lengthOfName, &length));
+            // Search, given no FileName
+            case SearchPass::BaseDirForResourcesPri:
+                searchDir = baseDir.get();
+                searchDirCount = baseDirCount;
+                searchFilename = ResourcesPriFileName;
+                break;
+            case SearchPass::BaseDirForModulePri:
+                // Change to [modulename].pri
+                searchFilename = modulePriFileName;
+                break;
+            case SearchPass::exeDirForResourcesPri:
+                searchDir = exeDir.get();
+                searchDirCount = exeDirCount;
+                searchFilename = ResourcesPriFileName;
+                break;
+            case SearchPass::exeDirForModulePri:
+                searchFilename = modulePriFileName;
+                // If this search misses, fall through to DefaultFallback (the next pass) so we
+                // still return a best-effort path (the documented always-succeed contract).
+                break;
+            case SearchPass::DefaultFallback:
+                // No file was found in any prior pass. Return a best-effort path even though it
+                // doesn't exist, matching the documented contract: the provided filename (if any)
+                // or resources.pri, under the base directory (if set) otherwise the module (exe)
+                // directory. Callers (e.g. ResourceManager) tolerate a non-existent path.
+                if (filename == nullptr || *filename == L'\0')
+                {
+                    if (baseDir)
+                    {
+                        searchDir = baseDir.get();
+                        searchDirCount = baseDirCount;
+                    }
+                    else
+                    {
+                        searchDir = moduleDir.data();
+                        searchDirCount = exeDirCount;
+                    }
+                    searchFilename = ResourcesPriFileName;
+                }
+                else
+                {
+                    searchDir = moduleDir.data();
+                    searchDirCount = exeDirCount;
+                    searchFilename = filename;
+                }
+                break;
+        }
 
-        size_t size;
-        RETURN_IF_FAILED(SizeTMult(length, sizeof(wchar_t), &size));
+        size_t searchFilenameCount;
+        RETURN_IF_FAILED(StringCchLengthW(searchFilename, STRSAFE_MAX_CCH, &searchFilenameCount));
 
-        PWSTR rawOutputPath = reinterpret_cast<PWSTR>(MrmAllocateBuffer(size));
-        RETURN_IF_NULL_ALLOC(rawOutputPath);
+        size_t searchPathCount;
+        RETURN_IF_FAILED(SizeTAdd(searchDirCount, searchFilenameCount, &searchPathCount));
 
-        std::unique_ptr<wchar_t, decltype(&MrmFreeResource)> outputPath(rawOutputPath, MrmFreeResource);
+        size_t bufferByteSize;
+        RETURN_IF_FAILED(SizeTMult(searchPathCount, sizeof(wchar_t), &bufferByteSize));
+        PWSTR outputPathBuffer = reinterpret_cast<PWSTR>(MrmAllocateBuffer(bufferByteSize));
+        RETURN_IF_NULL_ALLOC(outputPathBuffer);
+
+        std::unique_ptr<wchar_t, decltype(&MrmFreeResource)> outputPath(outputPathBuffer, MrmFreeResource);
         RETURN_IF_FAILED(PathCchCombineEx(
             outputPath.get(),
-            size,
-            path.get(),
-            filenameToUse,
+            searchPathCount,
+            searchDir,
+            searchFilename,
             PATHCCH_ALLOW_LONG_PATHS));
 
         DWORD attributes = GetFileAttributes(outputPath.get());
-
-        if ((attributes != INVALID_FILE_ATTRIBUTES) && !(attributes & FILE_ATTRIBUTE_DIRECTORY))
+        if ((pass == SearchPass::DefaultFallback) ||
+            ((attributes != INVALID_FILE_ATTRIBUTES) && !(attributes & FILE_ATTRIBUTE_DIRECTORY)))
         {
-            // The file exists. Done.
-            finalPath.swap(outputPath);
+            *filePath = outputPath.release();
             break;
         }
-
-        if (i == 0)
-        {
-            // The filename in the first iteration (the file under module path) will be returned if no file is found
-            // in all iterations.
-            finalPath.swap(outputPath);
-
-            // Prep for second iteration
-            if (filename == nullptr || *filename == L'\0')
-            {
-                // Change to [modulename].pri
-                RETURN_IF_FAILED(PathCchRenameExtension(moduleFilename, ARRAYSIZE(moduleFilename), L"pri"));
-                filenameToUse = moduleFilename;
-            }
-            else
-            {
-                // move to parent folder
-                RETURN_IF_FAILED(PathCchRemoveFileSpec(path.get(), bufferCount));
-            }
-        }
     }
-
-    *filePath = finalPath.release();
 
     return S_OK;
 }

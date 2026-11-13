@@ -84,8 +84,7 @@ void DecisionInfoUnitTests::SimpleBuilderTests()
         return;
     }
 
-    // Add test data to builders
-    if (FAILED(!decisionInfo.ApplyTestData(pBuilder)))
+    if (FAILED(decisionInfo.ApplyTestData(pBuilder)))
     {
         Log::Error(L"[ Error applying test data ]");
         return;

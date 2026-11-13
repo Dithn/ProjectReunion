@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors.
+// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
 #pragma once
@@ -41,7 +41,7 @@ public:
         const HRESULT hresult,
         UINT32 initializationCount,
         UINT32 IntegrityFlags,
-        PWSTR resolvedFrameworkPackageFullName,
+        PCWSTR resolvedFrameworkPackageFullName,
         UINT32 failureType,
         PCSTR failureFile,
         unsigned int failureLineNumber,
@@ -50,7 +50,7 @@ public:
     {
         SetStopResult(hresult);
 
-        if (hresult)
+        if (FAILED(hresult))
         {
             TraceLoggingClassWriteStop(Initialize,
                 _GENERIC_PARTB_FIELDS_ENABLED,
@@ -78,7 +78,7 @@ public:
     BEGIN_COMPLIANT_CRITICAL_DATA_ACTIVITY_CLASS(Shutdown, PDT_ProductAndServicePerformance);
     void StartActivity(
         UINT32 initializationCount,
-        PWSTR resolvedFrameworkPackageFullName)
+        PCWSTR resolvedFrameworkPackageFullName)
     {
         // Set lifetime activity Id that helps in corelating all sub-activities/telemetry from a single Mdd Bootstrap lifetime
         SetRelatedActivityId(GetLifetimeActivityId());
@@ -99,7 +99,7 @@ public:
     {
         SetStopResult(hresult);
 
-        if (hresult)
+        if (FAILED(hresult))
         {
             TraceLoggingClassWriteStop(Shutdown,
                 _GENERIC_PARTB_FIELDS_ENABLED,
@@ -130,13 +130,10 @@ public:
         _eventname_,\
         _activityId_,\
         nullptr,\
-        _WRITE_FAILURE_INFO,\
+        TraceLoggingValue(static_cast<uint32_t>(failure.type), "Type"),\
+        TraceLoggingValue(failure.hr, "HResult"),\
+        TraceLoggingValue(failure.pszFile, "File"),\
+        TraceLoggingValue(failure.uLineNumber,"Line"),\
+        TraceLoggingValue(failure.pszModule, "Module"),\
+        TraceLoggingValue(failure.pszMessage,"Message"),\
         __VA_ARGS__)
-
-#define _WRITE_FAILURE_INFO \
-    TraceLoggingValue(static_cast<uint32_t>(failure.type), "Type"),\
-    TraceLoggingValue(failure.hr, "HResult"),\
-    TraceLoggingValue(failure.pszFile, "File"),\
-    TraceLoggingValue(failure.uLineNumber,"Line"),\
-    TraceLoggingValue(failure.pszModule, "Module"),\
-    TraceLoggingValue(failure.pszMessage,"Message")

@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors.
+// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
 #pragma once
@@ -8,11 +8,13 @@
 #include "../Common/AppModel.Identity.h"
 #include "wil/stl.h"
 #include "wil/win32_helpers.h"
-#include "PushBackgroundTaskInstance.h"
+#include "LongRunningProcessSourcedTaskInstance.h"
 #include <filesystem>
+#include <wil/resource.h>
 
 namespace winrt
 {
+    using namespace Windows::ApplicationModel::Background;
     using namespace Windows::Foundation;
 }
 namespace winrt::Microsoft::Windows::PushNotifications::Helpers
@@ -21,7 +23,7 @@ namespace winrt::Microsoft::Windows::PushNotifications::Helpers
     inline constexpr std::wstring_view c_argumentCommandString = L"Arguments";
     inline constexpr std::wstring_view c_executableCommandString = L"Executable";
 
-    inline std::string WideStringToUtf8String(_In_ winrt::hstring const& utf16string)
+    inline std::string WideStringToPayloadUtf8String(_In_ winrt::hstring const& utf16string)
     {
         int size = WideCharToMultiByte(
             CP_UTF8,
@@ -119,18 +121,12 @@ namespace winrt::Microsoft::Windows::PushNotifications::Helpers
     inline HRESULT PackagedAppLauncherByClsid(winrt::guid const& comServerClsid, unsigned int payloadLength, _In_reads_(payloadLength) byte* payload) noexcept try
     {
         auto payloadAsWideString{ Utf8BytesToWideString(payloadLength, payload) };
-        auto pushBackgroundTaskInstance{ winrt::make_self<PushBackgroundTaskInstance>(payloadAsWideString) };
-
-        auto localBackgroundTask = winrt::create_instance<winrt::Windows::ApplicationModel::Background::IBackgroundTask>(comServerClsid, CLSCTX_ALL);
-        localBackgroundTask.Run(*pushBackgroundTaskInstance);
+        auto longRunningProcessSourcedTaskInstance{ winrt::make_self<LongRunningProcessSourcedTaskInstance>(payloadAsWideString) };
+        auto localBackgroundTask { winrt::create_instance<winrt::IBackgroundTask>(comServerClsid, CLSCTX_ALL) };
+        localBackgroundTask.Run(*longRunningProcessSourcedTaskInstance);
         return S_OK;
     }
     CATCH_RETURN()
-
-    inline wil::com_ptr<INotificationsLongRunningPlatform> GetNotificationPlatform()
-    {
-        return wil::CoCreateInstance<NotificationsLongRunningPlatform, INotificationsLongRunningPlatform>(CLSCTX_LOCAL_SERVER);
-    }
 
     inline bool IsBackgroundTaskBuilderAvailable()
     {
@@ -147,7 +143,7 @@ namespace winrt::Microsoft::Windows::PushNotifications::Helpers
     {
         WCHAR packageFullName[PACKAGE_FULL_NAME_MAX_LENGTH + 1]{};
         UINT32 packageFullNameLength{ ARRAYSIZE(packageFullName) };
-        THROW_IF_FAILED(GetCurrentPackageFullName(&packageFullNameLength, packageFullName));
+        THROW_IF_FAILED(::GetCurrentPackageFullName(&packageFullNameLength, packageFullName));
 
         packagedFullName = wil::make_cotaskmem_string(packageFullName);
         THROW_IF_NULL_ALLOC(packagedFullName);

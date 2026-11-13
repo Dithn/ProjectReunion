@@ -28,6 +28,9 @@ function Convert-Guid
     return $guid
 }
 
+Set-StrictMode -Version 3.0
+$ErrorActionPreference = 'Stop'
+
 if (-not(Test-Path -Path $Path -PathType Container))
 {
     Write-Host "Creating $Path..."
@@ -56,6 +59,11 @@ $content_json=@"
 		"ForegroundSink": {
 			"CLSID": {
 				"UUID": "25604D55-9B17-426F-9D67-2B11B3A65598"
+			}
+		},
+            "ForegroundSink2": {
+			"CLSID": {
+				"UUID": "559B4205-F810-4947-B02B-3EA9A311C6AD"
 			}
 		}
 	}
@@ -121,6 +129,11 @@ $content_h=@"
 #ifdef PUSHNOTIFICATIONS_FOREGROUNDSINK_CLSID_UUID
 #undef PUSHNOTIFICATIONS_FOREGROUNDSINK_CLSID_UUID
 #define PUSHNOTIFICATIONS_FOREGROUNDSINK_CLSID_UUID        25604D55-9B17-426F-9D67-2B11B3A65598
+#endif
+
+#ifdef PUSHNOTIFICATIONS_FOREGROUNDSINK2_CLSID_UUID
+#undef PUSHNOTIFICATIONS_FOREGROUNDSINK2_CLSID_UUID
+#define PUSHNOTIFICATIONS_FOREGROUNDSINK2_CLSID_UUID        559B4205-F810-4947-B02B-3EA9A311C6AD
 #endif
 "@
 $file_h = Join-Path $Path 'PushNotifications-Override.h'

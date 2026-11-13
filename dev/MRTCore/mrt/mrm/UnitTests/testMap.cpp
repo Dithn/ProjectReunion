@@ -21,9 +21,12 @@ TestResourceMap::TestResourceMap() :
     m_build(),
     m_pPriBuilder(nullptr),
     m_pMapBuilder(nullptr),
+    m_pSchemaBuilder(nullptr),
     m_pMap(nullptr),
+    m_pTestDI(nullptr),
     m_pMyMapBuilder(nullptr),
     m_pMySchemaBuilder(nullptr),
+    m_testDI(),
     m_pBaselinePri(nullptr),
     m_expectedFinalizeResult(0),
     m_expectedFinalizeReturn(true),
@@ -230,7 +233,7 @@ bool TestResourceMap::TryAddCandidatesFromTestVars(
         for (unsigned i = 0; i < candidates.GetSize(); i++)
         {
             Log::Comment(tmp.Format(L"[ candidate %d: %s ]", i, (PCWSTR)candidates[i]));
-            if (FAILED(candidate.InitFromList(candidates[i])))
+            if (!candidate.InitFromList(candidates[i]))
             {
                 Log::Warning(L" [ Couldn't parse candidate string ] ");
                 continue;
@@ -511,7 +514,7 @@ TestResourceMap::VerifyCandidates(_In_ TestMapPrivate* pMap, _In_ TestDecisionIn
         for (unsigned iSpec = 0; iSpec < specs.GetSize(); iSpec++)
         {
             Log::Comment(tmp.Format(L"[ Candidate %d: %s ]", iSpec, (PCWSTR)specs[iSpec]));
-            if (FAILED(spec.InitFromList(specs[iSpec])))
+            if (!spec.InitFromList(specs[iSpec]))
             {
                 Log::Warning(tmp.Format(L"[ Error parsing spec %d in %sExpectedCandidateInfo ]", iSpec, pVarPrefix));
                 continue;
@@ -596,7 +599,7 @@ TestResourceMap::VerifyNamedResources(_In_ TestMapPrivate* pMap, _In_ PCWSTR pVa
         for (unsigned i = 0; i < specs.GetSize(); i++)
         {
             Log::Comment(tmp.Format(L"[ Resource %d: %s ]", i, (PCWSTR)specs[i]));
-            if (FAILED(spec.InitFromList(specs[i])))
+            if (!spec.InitFromList(specs[i]))
             {
                 Log::Warning(tmp.Format(L"[ Error parsing spec %d in %sExpectedNamedResourcesInfo ]", i, pVarPrefix));
                 continue;
@@ -670,7 +673,7 @@ TestResourceMap::VerifyDescendentResources(_In_ TestMapPrivate* pMap, _In_ PCWST
         for (unsigned i = 0; i < specs.GetSize(); i++)
         {
             Log::Comment(tmp.Format(L"[ Resource %d: %s ]", i, (PCWSTR)specs[i]));
-            if (FAILED(spec.InitFromList(specs[i])))
+            if (!spec.InitFromList(specs[i]))
             {
                 Log::Warning(tmp.Format(L"[ Error parsing spec %d in %sExpectedDescendentResources ]", i, pVarPrefix));
                 continue;
@@ -714,8 +717,8 @@ TestResourceMap::VerifyDescendentScopes(_In_ TestMapPrivate* pMap, _In_ PCWSTR p
 
     if (pMap->pSubtree == nullptr)
     {
-        Log::Warning(tmp.Format(L"[ VerifyDescendentScopess(\"%s\") requires subtree ]", pVarPrefix));
-        return true;
+        Log::Warning(tmp.Format(L"[ VerifyDescendentScopes(\"%s\") requires subtree ]", pVarPrefix));
+        return E_FAIL;
     }
 
     Log::Comment(tmp.Format(L"[ VerifyDescendentScopes(\"%s\") ]", pVarPrefix));
@@ -737,7 +740,7 @@ TestResourceMap::VerifyDescendentScopes(_In_ TestMapPrivate* pMap, _In_ PCWSTR p
             TestStringArray expected;
 
             Log::Comment(tmp.Format(L"[ %sExpectedDescendentScopes %d: %s ]", pVarPrefix, (int)i, (PCWSTR)specs[i]));
-            if ((FAILED(expected.InitFromList(specs[i]))) || (expected.GetNumStrings() < 1) || (expected.GetNumStrings() > 3))
+            if ((!expected.InitFromList(specs[i])) || (expected.GetNumStrings() < 1) || (expected.GetNumStrings() > 3))
             {
                 Log::Error(L"Malformed ExpectedDescendentScopes value");
                 return E_FAIL;
@@ -784,7 +787,7 @@ TestResourceMap::VerifyDescendentScopes(_In_ TestMapPrivate* pMap, _In_ PCWSTR p
     else if (SUCCEEDED(TestData::TryGetValue(tmp.Format(L"%sExpectedDescendentScopesList", pVarPrefix), specListString)))
     {
         TestStringArray specList;
-        if (FAILED(specList.InitFromList(specListString)))
+        if (!specList.InitFromList(specListString))
         {
             Log::Warning(tmp.Format(L"[ Couldn't parse %sExpectedDescendentScopesList ]", pVarPrefix));
             return E_FAIL;

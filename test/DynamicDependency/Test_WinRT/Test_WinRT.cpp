@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors.
+// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
 #include "pch.h"
@@ -9,6 +9,8 @@
 #include <Math.Multiply.h>
 
 #include "Test_WinRT.h"
+
+#include <MddWin11.h>
 
 #include <wil/winrt.h>
 
@@ -87,6 +89,7 @@ void Test::DynamicDependency::Test_WinRT::Create_Delete()
     const winrt::Windows::ApplicationModel::PackageVersion minVersion{};
     auto packageDependency{ winrt::Microsoft::Windows::ApplicationModel::DynamicDependency::PackageDependency::Create(packageFamilyName, minVersion) };
 
+    WEX::Logging::Log::Comment(WEX::Common::String().Format(L"PackageDependencyId(%s).Delete()...", packageDependency.Id().c_str()));
     packageDependency.Delete();
 
     VerifyGenerationId(1);
@@ -96,14 +99,30 @@ void Test::DynamicDependency::Test_WinRT::GetFromId_Empty()
 {
     winrt::hstring packageDependencyId;
     auto packageDependency{ winrt::Microsoft::Windows::ApplicationModel::DynamicDependency::PackageDependency::GetFromId(packageDependencyId) };
-    VERIFY_IS_TRUE(!packageDependency);
+    if (MddCore::Win11::IsSupported())
+    {
+        //TODO Remove once GetFromId() fails for no-such-id
+        VERIFY_IS_TRUE(!!packageDependency);
+    }
+    else
+    {
+        VERIFY_IS_TRUE(!packageDependency);
+    }
 }
 
 void Test::DynamicDependency::Test_WinRT::GetFromId_NotFound()
 {
     winrt::hstring packageDependencyId{ L"This.Does.Not.Exist" };
     auto packageDependency{ winrt::Microsoft::Windows::ApplicationModel::DynamicDependency::PackageDependency::GetFromId(packageDependencyId) };
-    VERIFY_IS_TRUE(!packageDependency);
+    if (MddCore::Win11::IsSupported())
+    {
+        //TODO Remove once GetFromId() fails for no-such-id
+        VERIFY_IS_TRUE(!!packageDependency);
+    }
+    else
+    {
+        VERIFY_IS_TRUE(!packageDependency);
+    }
 }
 
 void Test::DynamicDependency::Test_WinRT::FullLifecycle_ProcessLifetime_Framework_WindowsAppRuntime()
@@ -133,13 +152,13 @@ void Test::DynamicDependency::Test_WinRT::FullLifecycle_ProcessLifetime_Framewor
     VerifyPackageInPackageGraph(expectedPackageFullName_WindowsAppRuntimeFramework, S_OK);
     VerifyPackageNotInPackageGraph(expectedPackageFullName_FrameworkMathAdd, S_OK);
     VerifyPathEnvironmentVariable(packagePath_WindowsAppRuntimeFramework, pathEnvironmentVariable.c_str());
-    VerifyPackageDependency(packageDependency_FrameworkMathAdd, S_OK, expectedPackageFullName_FrameworkMathAdd);
+    VerifyPackageDependency(packageDependency_FrameworkMathAdd, S_OK, winrt::hstring{});
     VerifyGenerationId(1);
 
     // -- Add
 
     auto packageDependencyContext_FrameworkMathAdd{ packageDependency_FrameworkMathAdd.Add() };
-    VERIFY_IS_FALSE(!packageDependencyContext_FrameworkMathAdd);
+    VERIFY_IS_FALSE(!packageDependencyContext_FrameworkMathAdd, WEX::Common::String().Format(L"PackageFullName=%s Expected=not-<null>", !packageDependencyContext_FrameworkMathAdd ? L"<null>" : packageDependencyContext_FrameworkMathAdd.PackageFullName().c_str()));
     VERIFY_ARE_EQUAL(std::wstring(packageDependencyContext_FrameworkMathAdd.PackageFullName()), std::wstring(expectedPackageFullName_FrameworkMathAdd));
 
     VerifyPackageInPackageGraph(expectedPackageFullName_WindowsAppRuntimeFramework, S_OK);
@@ -165,7 +184,7 @@ void Test::DynamicDependency::Test_WinRT::FullLifecycle_ProcessLifetime_Framewor
 
     wil::unique_process_heap_string resolvedPackageFullName;
     VERIFY_ARE_EQUAL(S_OK, mddGetResolvedPackageFullNameForPackageDependency(packageDependency_FrameworkMathAdd.Id().c_str(), &resolvedPackageFullName));
-    VERIFY_IS_NOT_NULL(resolvedPackageFullName.get());
+    VERIFY_IS_NOT_NULL(resolvedPackageFullName.get(), WEX::Common::String().Format(L"PackageFullName=%s Expected=not-<null>", !resolvedPackageFullName ? L"<null>" : resolvedPackageFullName.get()));
     winrt::hstring actualResolvedPackageFullName{ resolvedPackageFullName.get() };
     const auto& expectedResolvedPackageFullName{ expectedPackageFullName_FrameworkMathAdd };
     VERIFY_ARE_EQUAL(expectedResolvedPackageFullName, actualResolvedPackageFullName);
@@ -175,16 +194,18 @@ void Test::DynamicDependency::Test_WinRT::FullLifecycle_ProcessLifetime_Framewor
 
     // -- Remove
 
+    WEX::Logging::Log::Comment(WEX::Common::String().Format(L"PackageDependencyContext(%llu).Remove()...", packageDependencyContext_FrameworkMathAdd.ContextId().Id));
     packageDependencyContext_FrameworkMathAdd.Remove();
 
     VerifyPackageInPackageGraph(expectedPackageFullName_WindowsAppRuntimeFramework, S_OK);
     VerifyPackageNotInPackageGraph(expectedPackageFullName_FrameworkMathAdd, S_OK);
     VerifyPathEnvironmentVariable(packagePath_WindowsAppRuntimeFramework, pathEnvironmentVariable.c_str());
-    VerifyPackageDependency(packageDependencyId_FrameworkMathAdd, S_OK, expectedPackageFullName_FrameworkMathAdd);
+    VerifyPackageDependency_Win11NotResolved(packageDependencyId_FrameworkMathAdd, S_OK, expectedPackageFullName_FrameworkMathAdd);
     VerifyGenerationId(3);
 
     // -- Delete
 
+    WEX::Logging::Log::Comment(WEX::Common::String().Format(L"PackageDependencyId(%s).Delete()...", packageDependency_FrameworkMathAdd.Id().c_str()));
     packageDependency_FrameworkMathAdd.Delete();
 
     VerifyPackageInPackageGraph(expectedPackageFullName_WindowsAppRuntimeFramework, S_OK);
@@ -241,15 +262,43 @@ void Test::DynamicDependency::Test_WinRT::VerifyPackageDependency(
     const HRESULT expectedHR,
     PCWSTR expectedPackageFullName)
 {
-    wil::unique_process_heap_string packageFullName;
-    VERIFY_ARE_EQUAL(expectedHR, MddGetResolvedPackageFullNameForPackageDependency(packageDependencyId, &packageFullName));
-    if (!expectedPackageFullName)
+    // Given an unknown/undefined packageDependencyId our caller specifies expectedHR=HRESULT_FROM_WIN32(ERROR_NOT_FOUND).
+    // Handle the condition appropriately:
+    //
+    // API                                                                | HRESULT                                 | packageFullName
+    // -------------------------------------------------------------------|-----------------------------------------|----------------
+    // MddGetResolvedPackageFullNameForPackageDependency                  | S_OK                                    | NULL
+    // MddGetResolvedPackageFullNameForPackageDependency2 (Supported)     | HRESULT_FROM_WIN32(ERROR_NOT_FOUND)     | NULL
+    // MddGetResolvedPackageFullNameForPackageDependency2 (not Supported) | HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED) | NULL
+
+    const HRESULT expectedHR1{ (expectedHR == HRESULT_FROM_WIN32(ERROR_NOT_FOUND)) ? S_OK : expectedHR };
+    const HRESULT expectedHR2{
+        MddCore::Win11::IsSupported() && !MddCore::Win11::IsGetResolvedPackageFullNameForPackageDependency2Supported() ?
+            HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED) :
+            expectedHR };
+
+    wil::unique_process_heap_string packageFullName1;
+    VERIFY_ARE_EQUAL(expectedHR1, MddGetResolvedPackageFullNameForPackageDependency(packageDependencyId, &packageFullName1));
+    if (FAILED(expectedHR1) || !expectedPackageFullName || (expectedPackageFullName[0] == L'\0'))
     {
-        VERIFY_IS_TRUE(!packageFullName);
+        VERIFY_IS_NULL(packageFullName1, WEX::Common::String().Format(L"PackageFullName=%s Expected=<null>", !packageFullName1 ? L"<null>" : packageFullName1.get()));
     }
     else
     {
-        VERIFY_ARE_EQUAL(std::wstring(packageFullName.get()), std::wstring(expectedPackageFullName));
+        VERIFY_IS_NOT_NULL(packageFullName1, WEX::Common::String().Format(L"PackageFullName=null Expected=%s", expectedPackageFullName));
+        VERIFY_ARE_EQUAL(std::wstring(packageFullName1.get()), std::wstring(expectedPackageFullName));
+    }
+
+    wil::unique_process_heap_string packageFullName2;
+    VERIFY_ARE_EQUAL(expectedHR2, MddGetResolvedPackageFullNameForPackageDependency2(packageDependencyId, &packageFullName2));
+    if (FAILED(expectedHR2) || !expectedPackageFullName || (expectedPackageFullName[0] == L'\0'))
+    {
+        VERIFY_IS_NULL(packageFullName2, WEX::Common::String().Format(L"PackageFullName=%s Expected=<null>", !packageFullName2 ? L"<null>" : packageFullName2.get()));
+    }
+    else
+    {
+        VERIFY_IS_NOT_NULL(packageFullName2, WEX::Common::String().Format(L"PackageFullName=null Expected=%s", expectedPackageFullName));
+        VERIFY_ARE_EQUAL(std::wstring(packageFullName2.get()), std::wstring(expectedPackageFullName));
     }
 }
 
@@ -291,8 +340,72 @@ void Test::DynamicDependency::Test_WinRT::VerifyPackageDependency(
     VerifyPackageDependency(packageDependency.Id().c_str(), expectedHR, expectedPackageFullName.c_str());
 }
 
+void Test::DynamicDependency::Test_WinRT::VerifyPackageDependency_Win11NotResolved(
+    PCWSTR packageDependencyId,
+    const HRESULT expectedHR,
+    PCWSTR expectedPackageFullName)
+{
+    // Expected PackageFullName will be NULL if it's not resolved yet
+    // This can occur in the OS DynamicDependency API depending on order
+    // of operations and options. This differs from WinAppSDK DynamicDependency
+    // API in some cases. Tests use this method instad of VerifyPackageDependency()
+    // to handle this "expect NULL if we're using the OS API".
+    if (MddCore::Win11::IsSupported())
+    {
+        VerifyPackageDependency(packageDependencyId, expectedHR, nullptr);
+    }
+    else
+    {
+        VerifyPackageDependency(packageDependencyId, expectedHR, expectedPackageFullName);
+    }
+}
+
+void Test::DynamicDependency::Test_WinRT::VerifyPackageDependency_Win11NotResolved(
+    PCWSTR packageDependencyId,
+    const HRESULT expectedHR,
+    const std::wstring& expectedPackageFullName)
+{
+    VerifyPackageDependency_Win11NotResolved(packageDependencyId, expectedHR, expectedPackageFullName.c_str());
+}
+
+void Test::DynamicDependency::Test_WinRT::VerifyPackageDependency_Win11NotResolved(
+    const winrt::hstring& packageDependencyId,
+    const HRESULT expectedHR)
+{
+    VerifyPackageDependency_Win11NotResolved(packageDependencyId.c_str(), expectedHR);
+}
+
+void Test::DynamicDependency::Test_WinRT::VerifyPackageDependency_Win11NotResolved(
+    const winrt::hstring& packageDependencyId,
+    const HRESULT expectedHR,
+    const winrt::hstring& expectedPackageFullName)
+{
+    VerifyPackageDependency_Win11NotResolved(packageDependencyId.c_str(), expectedHR, expectedPackageFullName.c_str());
+}
+
+void Test::DynamicDependency::Test_WinRT::VerifyPackageDependency_Win11NotResolved(
+    const winrt::Microsoft::Windows::ApplicationModel::DynamicDependency::PackageDependency& packageDependency,
+    const HRESULT expectedHR)
+{
+    VerifyPackageDependency_Win11NotResolved(packageDependency.Id().c_str(), expectedHR);
+}
+
+void Test::DynamicDependency::Test_WinRT::VerifyPackageDependency_Win11NotResolved(
+    const winrt::Microsoft::Windows::ApplicationModel::DynamicDependency::PackageDependency& packageDependency,
+    const HRESULT expectedHR,
+    const winrt::hstring& expectedPackageFullName)
+{
+    VerifyPackageDependency_Win11NotResolved(packageDependency.Id().c_str(), expectedHR, expectedPackageFullName.c_str());
+}
+
 void Test::DynamicDependency::Test_WinRT::VerifyPathEnvironmentVariable(PCWSTR path)
 {
+    // N/A when DynamicDependency delegates to the Win11 OS API
+    if (MddCore::Win11::IsSupported())
+    {
+        return;
+    }
+
     std::wstring expectedPath{ path };
     std::wstring pathEnvironmentVariable{ wil::TryGetEnvironmentVariableW(L"PATH").get() };
     VERIFY_ARE_EQUAL(expectedPath, pathEnvironmentVariable);
@@ -300,6 +413,12 @@ void Test::DynamicDependency::Test_WinRT::VerifyPathEnvironmentVariable(PCWSTR p
 
 void Test::DynamicDependency::Test_WinRT::VerifyPathEnvironmentVariable(PCWSTR path1, PCWSTR path)
 {
+    // N/A when DynamicDependency delegates to the Win11 OS API
+    if (MddCore::Win11::IsSupported())
+    {
+        return;
+    }
+
     std::wstring pathEnvironmentVariable{ wil::TryGetEnvironmentVariableW(L"PATH").get() };
     std::wstring expectedPath{ std::wstring(path1) + L";" + path };
     VERIFY_ARE_EQUAL(expectedPath, pathEnvironmentVariable);
@@ -307,6 +426,12 @@ void Test::DynamicDependency::Test_WinRT::VerifyPathEnvironmentVariable(PCWSTR p
 
 void Test::DynamicDependency::Test_WinRT::VerifyPathEnvironmentVariable(PCWSTR path1, PCWSTR path2, PCWSTR path)
 {
+    // N/A when DynamicDependency delegates to the Win11 OS API
+    if (MddCore::Win11::IsSupported())
+    {
+        return;
+    }
+
     std::wstring pathEnvironmentVariable{ wil::TryGetEnvironmentVariableW(L"PATH").get() };
     std::wstring expectedPath{ std::wstring(path1) + L";" + path2 + L";" + path };
     VERIFY_ARE_EQUAL(expectedPath, pathEnvironmentVariable);
@@ -314,6 +439,12 @@ void Test::DynamicDependency::Test_WinRT::VerifyPathEnvironmentVariable(PCWSTR p
 
 void Test::DynamicDependency::Test_WinRT::VerifyPathEnvironmentVariable(PCWSTR path1, PCWSTR path2, PCWSTR path3, PCWSTR path)
 {
+    // N/A when DynamicDependency delegates to the Win11 OS API
+    if (MddCore::Win11::IsSupported())
+    {
+        return;
+    }
+
     std::wstring pathEnvironmentVariable{ wil::TryGetEnvironmentVariableW(L"PATH").get() };
     std::wstring expectedPath{ std::wstring(path1) + L";" + path2 + L";" + path3 + L";" + path };
     VERIFY_ARE_EQUAL(expectedPath, pathEnvironmentVariable);

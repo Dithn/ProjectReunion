@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors.
+// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
 #pragma once
@@ -6,10 +6,14 @@
 #include <winrt/Windows.ApplicationModel.Core.h>
 #include "PushNotificationUtility.h"
 #include <algorithm>
+#include "NotificationTelemetryHelper.h"
 
 inline const winrt::hstring STORED_PUSH_MANAGER_KEY = L"StoredPushManagerKey";
 inline const winrt::hstring STORED_APPNOTIFICATION_MANAGER_KEY = L"StoredAppNotificationManagerKey";
+inline const winrt::hstring STORED_BADGENOTIFICATION_MANAGER_KEY = L"StoredBadgeNotificationManagerKey";
 inline const DWORD c_receiveArgsTimeoutInMSec{ 2000 };
+
+inline NotificationTelemetryHelper g_telemetryHelper{};
 
 namespace PushNotificationHelpers
 {
@@ -33,6 +37,5 @@ inline std::wstring GetCurrentProcessPath()
 {
     std::wstring processPath{};
     THROW_IF_FAILED(wil::GetModuleFileNameExW(GetCurrentProcess(), nullptr, processPath));
-    std::transform(processPath.begin(), processPath.end(), processPath.begin(), ::towlower);
     return processPath;
 };

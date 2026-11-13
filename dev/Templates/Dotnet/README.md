@@ -1,0 +1,387 @@
+# Windows App SDK WinUI 3 C# Templates
+
+Official WinUI 3 project and item templates for the
+[Windows App SDK](https://learn.microsoft.com/windows/apps/windows-app-sdk/).
+This template pack provides the same starting points available in Visual
+Studio — blank apps, navigation views, MVVM scaffolding, tab-view shells,
+class libraries, unit test projects, and common WinUI UI items — right from
+the command line.
+
+`dotnet run` launches the generated app with full MSIX package identity, so
+features that require it (notifications, background tasks, Windows AI APIs,
+etc.) work the same as they would in a Visual Studio F5 deploy.
+
+## Installation
+
+Install the WinApp CLI with WinGet:
+
+```powershell
+winget install Microsoft.winappcli --source winget
+```
+
+`winapp new` installs this template pack automatically the first time you use
+it, so there is nothing else to set up.
+
+## Available Templates
+
+Run `winapp new --list` to see every project template available — both the
+WinUI templates and the Reactor ones below.
+
+### Project Templates
+
+| Short Name        | Description                                                              |
+|-------------------|--------------------------------------------------------------------------|
+| `winui`           | Minimal WinUI 3 blank app with MSIX packaging. Start here if unsure |
+| `winui-mvvm`      | WinUI 3 MVVM app using `CommunityToolkit.Mvvm`                           |
+| `winui-navview`   | WinUI 3 NavigationView starter app with MSIX packaging    |
+| `winui-tabview`   | WinUI 3 TabView starter app with MSIX packaging           |
+| `winui-lib`       | WinUI 3 class library for sharing UI components                          |
+| `winui-unittest`  | WinUI 3 test app configured for MSTest            |
+
+Each `winui-*` short name also has a `winui3-*` alias (e.g. `winui3-mvvm`).
+
+### Reactor Templates (Experimental)
+
+> [!IMPORTANT]
+> These templates are **experimental**.
+> [Microsoft.UI.Reactor](https://github.com/microsoft/microsoft-ui-reactor) is
+> prerelease software: its API may change in breaking ways between releases, and
+> these templates may change or be removed. They aren't recommended for
+> production apps yet.
+
+[Microsoft.UI.Reactor](https://github.com/microsoft/microsoft-ui-reactor) is a
+declarative, React-style way to build WinUI 3 apps in **pure C# — no XAML**.
+These templates scaffold a runnable Reactor app with optional MSIX packaging
+whose UI mirrors the matching WinUI 3 XAML templates.
+
+| Short Name         | Description                                                          |
+|--------------------|----------------------------------------------------------------------|
+| `reactor`          | Blank Reactor app (alias `reactor-blank`). Start here if unsure      |
+| `reactor-mvu`      | Reactor app using the Model-View-Update pattern with `UseReducer`    |
+| `reactor-navview`  | Reactor app with a `NavigationView` shell and multiple pages         |
+| `reactor-tabview`  | Reactor app with a `TabView` shell whose tabs live in the title bar  |
+| `reactor-singlefile` | Blank Reactor app as a single `.cs` [file-based app](https://learn.microsoft.com/dotnet/core/sdk/file-based-apps), no `.csproj` |
+
+Each also has a `winui-reactor*` alias (e.g. `winui-reactor`, `winui-reactor-mvu`).
+
+Reactor apps are packaged (single-project MSIX) by default and reference the
+[`Microsoft.UI.Reactor`](https://www.nuget.org/packages/Microsoft.UI.Reactor)
+preview NuGet package. They require .NET 10 or later. Like the WinUI templates,
+they reference `Microsoft.Windows.SDK.BuildTools.WinApp` so `dotnet run` launches
+the app with full MSIX package identity. Pin a specific Reactor package version
+at scaffold time with `--reactor-version`. `reactor-singlefile` is the one
+exception to the project layout: see
+[Quickstart a single-file Reactor app](#quickstart-a-single-file-reactor-app).
+
+The Reactor templates don't reference the `Microsoft.WindowsAppSDK` metapackage.
+`Microsoft.UI.Reactor` brings in only the Windows App SDK packages it needs
+(`Microsoft.WindowsAppSDK.WinUI` and `Microsoft.WindowsAppSDK.Runtime`)
+transitively. This keeps the AI and ML components (for example
+`onnxruntime.dll` and `DirectML.dll`) out of the app, including trimmed and
+Native AOT publishes. To use another Windows App SDK component, add its package
+yourself, or reference the full `Microsoft.WindowsAppSDK` metapackage. The
+version you pick must match the `Microsoft.WindowsAppSDK.Runtime` version that
+Reactor brings in.
+
+### Item Templates
+
+| Short Name                 | Description                                              |
+|----------------------------|----------------------------------------------------------|
+| `winui-page`               | WinUI 3 Page (XAML + code-behind)                        |
+| `winui-window`             | WinUI 3 Window (XAML + code-behind)                      |
+| `winui-usercontrol`        | WinUI 3 UserControl (XAML + code-behind)                 |
+| `winui-templatedcontrol`   | WinUI 3 templated control                                |
+| `winui-resourcedictionary` | WinUI 3 ResourceDictionary                               |
+| `winui-resw`               | RESW resources file for localized strings                |
+| `winui-dialog`             | WinUI 3 ContentDialog (XAML + code-behind)               |
+
+Item templates are context-aware and only surface when `dotnet new` is executed
+inside a WinUI project folder or when `--project` points to one.
+
+## Quick Start
+
+### Quickstart a new WinUI 3 APP
+
+```powershell
+winapp new -n MyApp
+cd MyApp
+
+# dotnet build
+dotnet run
+```
+
+`dotnet run` registers a loose-layout MSIX, gives the app package identity,
+and launches it via AUMID activation — equivalent to F5 in Visual Studio.
+
+### Quickstart a new Reactor app
+
+```powershell
+winapp new -t reactor -n MyReactorApp
+cd MyReactorApp
+dotnet run
+```
+
+Reactor apps are pure C# (no XAML) and packaged (single-project MSIX), so
+`dotnet run` registers a loose-layout package and launches the app with full
+MSIX package identity — equivalent to F5 in Visual Studio. See the
+[Reactor documentation](https://github.com/microsoft/microsoft-ui-reactor) to
+learn the component model, hooks, and layout system. Swap `reactor` for
+`reactor-mvu`, `reactor-navview`, or `reactor-tabview` to start from a richer
+shell.
+
+Debug builds of these projects reference `Microsoft.UI.Reactor.Devtools`, but
+devtools stay off until you launch with `--devtools app`, for example
+`dotnet run -- --devtools app`. Render `DevtoolsMenu(...)` in your UI to show
+the in-app dev menu. A bare `--devtools` starts the heavier devtools session,
+which also hosts an MCP server.
+
+### Quickstart a single-file Reactor app
+
+```powershell
+dotnet new reactor-singlefile -n MyReactorApp
+cd MyReactorApp
+dotnet run MyReactorApp.cs
+```
+
+`reactor-singlefile` scaffolds a single `MyReactorApp.cs`: a .NET 10
+[file-based app](https://learn.microsoft.com/dotnet/core/sdk/file-based-apps)
+whose `#:package` and `#:property` directives take the place of a `.csproj`.
+It still runs packaged: `Microsoft.Windows.SDK.BuildTools.WinApp` (0.7.0 or
+later) makes `dotnet run MyReactorApp.cs` synthesize an appxmanifest from those
+directives, register the app, and launch it with package identity (Developer
+Mode required). `winapp run MyReactorApp.cs` does the same. To run it
+unpackaged instead, add `#:property WindowsPackageType=None` to the file. When
+the app outgrows one file, `dotnet project convert MyReactorApp.cs` turns it
+into a regular project.
+
+### Add items to an existing project
+
+```powershell
+dotnet new winui-page         -n SettingsPage      --project .\MyApp.csproj
+dotnet new winui-usercontrol  -n ProfileCard       --project .\MyApp.csproj
+dotnet new winui-window       -n SecondaryWindow   --project .\MyApp.csproj
+dotnet new winui-dialog       -n ConfirmDialog     --project .\MyApp.csproj
+```
+
+### Choosing a Target Framework
+
+Generated projects target `net{N}.0-windows10.0.26100.0`. `winapp new`
+scaffolds against your installed .NET SDK's target framework. To choose one
+explicitly, scaffold with `dotnet new` and pass `--dotnet-version`:
+
+```shell
+dotnet new winui --dotnet-version net10.0 -n MyApp
+dotnet new winui --dotnet-version net11.0 -n MyApp
+```
+
+Supported choices: `net10.0`, `net11.0`. If you omit
+`--dotnet-version`, templates default to `net10.0`.
+You can also edit `<TargetFramework>` in the
+generated `.csproj` afterward.
+
+### Unit tests
+
+`winui-unittest` uses `Microsoft.NET.Sdk` with the `MSTest` metapackage and
+supports both VSTest and Microsoft.Testing.Platform, with packaged or unpackaged
+deployment. Defaults are VSTest, packaged, and no fixture methods.
+
+```powershell
+dotnet new winui-unittest -n MyTests
+dotnet new winui-unittest -n MyMtpTests --test-runner Microsoft.Testing.Platform
+dotnet new winui-unittest -n MyDesktopTests --packaging Unpackaged
+dotnet new winui-unittest -n MyFixtureTests --fixture AssemblyInitialize ClassInitialize TestInitialize TestCleanup ClassCleanup AssemblyCleanup
+```
+
+Unpackaged output omits the MSIX manifest and package assets, while retaining
+the native DPI/compatibility `app.manifest`. Publisher parameters are enabled
+only for packaged projects. Tests share a WinUI application
+and dispatcher, so the sample explicitly disables parallel execution.
+
+MTP generation uses the standard MSTest post-action to create or update
+`test.runner` in `global.json`, reusing an existing ancestor/repository file
+and preserving unrelated properties. VSTest generation leaves it unchanged.
+Run commands from the generated project's directory with the intended runner
+selected. Substitute `x64` or `x86` for `ARM64` to match your machine:
+
+```powershell
+# Packaged or unpackaged MTP.
+dotnet build .\MyMtpTests.csproj -p:Platform=ARM64
+dotnet test --project .\MyMtpTests.csproj --no-build -p:Platform=ARM64 --report-trx
+
+# Unpackaged VSTest.
+dotnet test .\MyDesktopTests.csproj -p:Platform=ARM64 --logger trx
+```
+
+For packaged VSTest, build the project and run its `.build.appxrecipe` with
+Visual Studio's `vstest.console.exe` or use Test Explorer; testing the DLL
+with ordinary `dotnet test` does not activate the package. Native MTP
+`dotnet test --project` integration requires .NET SDK 10 or later.
+
+### Choosing Packaging
+
+The WinUI app templates (`winui`, `winui-navview`, `winui-mvvm`, and
+`winui-tabview`) and project-based Reactor app templates support `--packaging`:
+
+```shell
+dotnet new winui --packaging Packaged -n MyApp
+dotnet new winui --packaging Unpackaged -n MyDesktopApp
+```
+
+`Packaged` is the default. `Unpackaged` sets `WindowsPackageType=None` and,
+for project-based apps, omits the MSIX manifest, MSIX-only assets, MSIX tooling,
+and `Microsoft.Windows.SDK.BuildTools.WinApp`. Packaged projects get a
+`(Package)` launch profile, the Visual Studio F5 default, and an `(Unpackaged)`
+profile for `dotnet run`, which can't apply MSIX profiles;
+`Microsoft.Windows.SDK.BuildTools.WinApp` still launches the app with package
+identity. Unpackaged projects get only the unpackaged profiles: `(Unpackaged)`,
+plus `(Unpackaged, Devtools)` for Reactor, which passes `--devtools app`. The
+publisher fields are enabled only for packaged projects.
+Packaging and the two publisher fields are the last three options in Visual
+Studio.
+
+`reactor-singlefile` does not expose `--packaging`. To run it unpackaged, add
+`#:property WindowsPackageType=None` to the generated file. It keeps
+`Microsoft.Windows.SDK.BuildTools.WinApp` for file-based app support.
+
+### NuGet Package Versions
+
+By default, project templates reference the latest stable version of each NuGet
+package. At creation time, they run `dotnet add package` to write that version
+into the generated `.csproj`. To pin a package instead, pass its version
+option, for example `--wasdk-version`, `--build-tools-version`, or
+`--winapp-version` (see `dotnet new <template> --help`). If the package feed
+can't be reached, the reference keeps `Version="*"` and resolves to the latest
+version at the next restore. Visual Studio hides these options and always uses
+the latest stable versions. Because Visual Studio only adds package references
+that aren't already in the project, the template omits them there and lets the
+post action add them; if the feed can't be reached, add them manually.
+
+### Customizing `dotnet run` behavior
+
+Set any of these MSBuild properties inside a `<PropertyGroup>` in the
+generated `.csproj` to tweak how `dotnet run` launches the app:
+
+| Property                       | Default | Effect                                                                                         |
+|--------------------------------|---------|------------------------------------------------------------------------------------------------|
+| `EnableWinAppRunSupport`       | `true`  | Set to `false` to disable the packaged-launch integration and run unpackaged instead           |
+| `WinAppRunUseExecutionAlias`   | `false` | For console apps — launches via `uap5:ExecutionAlias` so stdin/stdout stay in the terminal     |
+| `WinAppRunNoLaunch`            | `false` | Register the package but don't launch (useful when attaching a different debugger first)       |
+| `WinAppRunDebugOutput`         | `false` | Capture `OutputDebugString` and crash dumps; cannot be combined with another debugger          |
+| `WinAppLaunchArgs`             | (empty) | Arguments passed to the app on launch (e.g. `--my-flag value`)                                 |
+
+These properties are provided by the
+[`Microsoft.Windows.SDK.BuildTools.WinApp`](https://www.nuget.org/packages/Microsoft.Windows.SDK.BuildTools.WinApp)
+NuGet package, which is referenced automatically by the project templates.
+A single-file app (`reactor-singlefile`) has no `.csproj`: set them with
+`#:property` directives in the `.cs` file instead (for example
+`#:property WinAppRunNoLaunch=true`), or pass them to `dotnet run` with `-p:`.
+
+## Debugging in VS Code
+
+The app templates include a `.vscode/launch.json` with a **WinApp: Launch and
+Attach** configuration, so you can press <kbd>F5</kbd> in VS Code to build,
+deploy, and debug the generated app with full MSIX package identity —
+equivalent to F5 in Visual Studio.
+
+This requires the
+[WinApp extension](https://marketplace.visualstudio.com/items?itemName=Microsoft-WinAppCLI.winapp),
+which contributes the `winapp` debug type used by that configuration.
+
+## Prerequisites
+
+- [WinApp CLI](https://github.com/microsoft/WinAppCli) - `winget install Microsoft.winappcli --source winget`
+- [.NET SDK](https://dotnet.microsoft.com/download) — `net10.0` or `net11.0`
+- Windows 10 version 1809 (build 17763) or later
+- **Developer Mode enabled** — required for `dotnet run` to register the loose-layout package.
+  Settings → System → For developers → Developer Mode → On.
+
+## Resources
+
+- [WinApp CLI](https://github.com/microsoft/WinAppCli)
+- [Windows App SDK documentation](https://learn.microsoft.com/windows/apps/windows-app-sdk/)
+- [WinUI 3 documentation](https://learn.microsoft.com/windows/apps/winui/winui3/)
+- [Release notes](https://github.com/microsoft/WindowsAppSDK/releases)
+- [File an issue](https://github.com/microsoft/WindowsAppSDK/issues)
+
+## Contributing
+
+This template pack is built from the
+[WindowsAppSDK](https://github.com/microsoft/WindowsAppSDK) repository under
+`dev\Templates\Dotnet\`. Each directory under `templates` contains both
+the sources and `.template.config` metadata. The C# VSIX embeds this same
+NuGet pack and registers it with Visual Studio's template engine; there is no
+separate Visual Studio build for these templates. Experimental Reactor project
+templates appear in Visual Studio; `reactor-singlefile` remains CLI-only.
+The two-project `.csproj` + `.wapproj` template is a VSIX-only
+exception that retains its existing `.vstemplate` implementation; it is not part
+of this NuGet pack.
+
+### Template localization
+
+Each `.template.config\template.json` is the English source of truth. Its
+localizable metadata is mirrored in a flat
+`.template.config\localize\templatestrings.json` handoff file next to the
+culture-specific sidecars. Keep the handoff file in sync whenever localizable
+metadata changes; review its keys and values against `template.json` as part of
+the source change. Mirror only translatable metadata, not every description
+field. Exclude version-only strings and standalone product names, such as
+`10.0.26100.0`, `Microsoft.Testing.Platform`, and `VSTest`; keep their original
+values in `template.json`. Descriptions containing prose, such as
+`Target .NET 10`, still need localization, with product names and version
+numbers preserved. The Touchdown upload submits these checked-in files; it does
+not regenerate them or verify their freshness. Stable `id` values on post
+actions and manual instructions are localization identities and must not be
+renumbered or reused.
+
+The existing upload is defined in `build\WindowsAppSDK-TDBuild.yml` and
+publishes the returned `LocalizedFiles` artifact. When queuing the pipeline,
+set the **Service Tree ID** (`serviceTreeId`) parameter to the ID confirmed by
+the service owner. It is passed through the shared template to
+`TouchdownBuildTask@5`; the empty default is not a valid service ID. For Azure
+CLI runs, supply `--parameters serviceTreeId=<confirmed-service-tree-id>`.
+The Touchdown task downloads LCT files into the staging directory for
+`LocStatusStaticAnalysis@1`. Review the run's **LocStatus Report** tab for
+resource and culture coverage and outstanding localization work. Static
+analysis does not enable enrichment or prove translation completeness; review
+the returned JSON separately. Keep LCT files as build artifacts, not source.
+The supported runtime cultures
+are `cs-CZ`, `de-DE`, `es-ES`, `fr-FR`, `it-IT`, `ja-JP`, `ko-KR`, `pl-PL`,
+`pt-BR`, `ru-RU`, `tr-TR`, `zh-CN`, and `zh-TW`. Review the actual artifact
+paths and approved service-to-runtime culture mapping before importing. Before
+submission, have the localization owner confirm that the Touchdown team accepts
+the flat JSON format and preserves slash-delimited keys. The pipeline's
+relative-directory setting alone does not establish the return layout. Copy
+only reviewed JSON sidecars to
+`.template.config\localize\templatestrings.<culture>.json`, preserving existing
+translations and rejecting unknown or ambiguous cultures. No automatic
+translation commit or pull request is performed.
+
+### Local Testing
+
+1. Pack the templates:
+   ```shell
+   dotnet pack dev/Templates/Dotnet/WinAppSdk.CSharp.DotnetNewTemplates.csproj -c Release -o localpackages
+   ```
+2. Uninstall any previous version:
+   ```shell
+   dotnet new uninstall Microsoft.WindowsAppSDK.WinUI.CSharp.Templates
+   ```
+3. Install the local package:
+   ```shell
+   dotnet new install ./localpackages/Microsoft.WindowsAppSDK.WinUI.CSharp.Templates.<version>.nupkg
+   ```
+
+For an automated end-to-end run that scaffolds, builds, and (optionally)
+launches every template, use the included script:
+
+```powershell
+.\dev\Templates\Dotnet\Test-DotnetNewTemplates.ps1                      # full run
+.\dev\Templates\Dotnet\Test-DotnetNewTemplates.ps1 -SkipAppLaunch       # CI-friendly
+```
+
+### Validation Checklist
+
+- Run `dotnet pack` locally and `dotnet new install` to verify the local build.
+- Run `dotnet new list winui` to review and confirm all templates are registered.
+- Build generated projects for x64, x86, and ARM64 in Visual Studio or `dotnet build`.
+- Test packaged deployments on Windows 10 version 1809 or later.

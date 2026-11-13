@@ -9,7 +9,7 @@ void WindowsAppRuntimeInstaller::Console::DisplayHeader()
 {
     std::wcout << L"WindowsAppRuntimeInstaller -- Installs the Microsoft Windows App SDK runtime"
         << "version: " << WINDOWSAPPSDK_RELEASE_VERSION;
-    if (CompareStringOrdinal(WINDOWSAPPSDK_RELEASE_CHANNEL_W, static_cast<int>(sizeof(WINDOWSAPPSDK_RELEASE_CHANNEL_W)), L"", static_cast<int>(sizeof(L"")), TRUE) == CSTR_EQUAL)
+    if (CompareStringOrdinal(WINDOWSAPPSDK_RELEASE_CHANNEL_W, -1, L"", -1, TRUE) == CSTR_EQUAL)
     {
         std::wcout << "-" << WINDOWSAPPSDK_RELEASE_CHANNEL_W;
     }
@@ -48,10 +48,10 @@ void WindowsAppRuntimeInstaller::Console::DisplayError(const HRESULT hr)
 
     HRESULT hResult = hr;
 
-    if (installActivityContext.GetDeploymentErrorHresult() &&
-        installActivityContext.GetInstallStage() == InstallStage::StagePackage ||
+    if (FAILED(installActivityContext.GetDeploymentErrorHresult()) &&
+        (installActivityContext.GetInstallStage() == InstallStage::StagePackage ||
         installActivityContext.GetInstallStage() == InstallStage::AddPackage ||
-        installActivityContext.GetInstallStage() == InstallStage::RegisterPackage)
+        installActivityContext.GetInstallStage() == InstallStage::RegisterPackage))
     {
         hResult = installActivityContext.GetDeploymentErrorHresult();
     }
@@ -69,9 +69,15 @@ void WindowsAppRuntimeInstaller::Console::DisplayError(const HRESULT hr)
         std::wcout << message.get();
     }
 
+    // On non-English systems, FormatMessage may return localized text containing characters
+    // that cannot be converted by std::wcout in narrow text mode (e.g. when stdout is a pipe).
+    // This sets the stream's badbit, silently dropping ALL subsequent output.
+    // Clear the stream state to ensure subsequent output is not lost.
+    std::wcout.clear();
+
     // Don't log redundant Hr information
-    if (installActivityContext.GetDeploymentErrorExtendedHResult() &&
-        installActivityContext.GetDeploymentErrorExtendedHResult() != hResult &&
+    if (FAILED(installActivityContext.GetDeploymentErrorExtendedHResult()) &&
+        (installActivityContext.GetDeploymentErrorExtendedHResult() != hResult) &&
         (installActivityContext.GetInstallStage() == InstallStage::StagePackage ||
             installActivityContext.GetInstallStage() == InstallStage::AddPackage ||
             installActivityContext.GetInstallStage() == InstallStage::RegisterPackage))
@@ -82,6 +88,7 @@ void WindowsAppRuntimeInstaller::Console::DisplayError(const HRESULT hr)
             nullptr, installActivityContext.GetDeploymentErrorExtendedHResult(), 0, reinterpret_cast<PWSTR>(&message), 0, nullptr) != 0)
         {
             std::wcout << message.get();
+            std::wcout.clear();
         }
     }
 
@@ -91,5 +98,6 @@ void WindowsAppRuntimeInstaller::Console::DisplayError(const HRESULT hr)
             installActivityContext.GetInstallStage() == InstallStage::RegisterPackage))
     {
         std::wcout << "ErrorMessage: " << installActivityContext.GetDeploymentErrorText();
+        std::wcout.clear();
     }
 }

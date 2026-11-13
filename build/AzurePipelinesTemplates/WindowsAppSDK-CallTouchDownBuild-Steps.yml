@@ -11,6 +11,9 @@ parameters:
 - name: TeamID
   type: string
   default: ''
+- name: serviceTreeId
+  type: string
+  default: ''
 
 steps:
 - checkout: self
@@ -21,16 +24,23 @@ steps:
     git config --global user.email "DoNotEmailThis@dev.null.microsoft.com"
     git config --global user.name "TDBuild"
 
-- task: TouchdownBuildTask@1
+- task: TouchdownBuildTask@5
   inputs:
     environment: 'PRODEXT'
     teamId: ${{ parameters.TeamID }}
-    authType: 'OAuth'
-    authId: $(TdBuildAuthID)
-    authKey: $(TdBuildToken)
+    serviceTreeId: ${{ parameters.serviceTreeId }}
+    authType: 'FederatedIdentity'
+    FederatedIdentityServiceConnection: "WinAppSDKAzureResourceManager"
     localizationTarget: true
+    includeLctFiles: true
     isPreview: false
     resourceFilePath: ${{ parameters.ResourceFilePath }}
     appendRelativeDir: true
     cultureMappingType: 'None'
-    gitAction: ${{ parameters.GitAction }}
+    outputDirectoryRoot: '$(Build.ArtifactStagingDirectory)'
+
+- task: PublishPipelineArtifact@1
+  condition: succeededOrFailed()
+  inputs:
+    targetPath: '$(Build.ArtifactStagingDirectory)'
+    artifact: 'LocalizedFiles'

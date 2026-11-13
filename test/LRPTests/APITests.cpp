@@ -1,0 +1,275 @@
+// Copyright (c) Microsoft Corporation and Contributors.
+// Licensed under the MIT License.
+
+#include "pch.h"
+#include <TestDef.h>
+#include <TlHelp32.h>
+#include <NotificationsLongRunningProcess_h.h>
+#include "NotificationPlatformActivation.h"
+#include "MddWin11.h"
+
+using namespace WEX::Common;
+using namespace WEX::Logging;
+using namespace WEX::TestExecution;
+
+using namespace winrt::Windows::Foundation;
+using namespace winrt::Windows::System;
+
+namespace Test::LRP
+{
+    static const PCWSTR c_processName = L"TAEF.exe";
+    static const PCWSTR c_appId = L"toastAppId";
+    static const PCWSTR c_lrpExeName = L"PushNotificationsLongRunningTask.exe";
+
+    class LRPTests
+    {
+
+    public:
+        BEGIN_TEST_CLASS(LRPTests)
+            TEST_CLASS_PROPERTY(L"Description", L"Windows App SDK Push Notifications Long Running Process tests")
+            TEST_CLASS_PROPERTY(L"ThreadingModel", L"MTA")
+            TEST_CLASS_PROPERTY(L"RunAs", L"RestrictedUser")
+            // Retry on transient MSIX/COM-server install races (HRESULT 0x80073D02
+            // ERROR_INSTALL_RESOURCES_BUSY) seen intermittently on x86 Win10 22H2.
+            TEST_CLASS_PROPERTY(L"TestRetryCount", L"2")
+        END_TEST_CLASS()
+
+        wil::com_ptr<INotificationsLongRunningPlatform> GetNotificationPlatform()
+        {
+            // CoCreateInstance against the LRP COM server (housed in the
+            // WindowsAppRuntimeSingleton MSIX package) can transiently throw
+            // ERROR_PACKAGES_IN_USE (0x80073D02) when a sibling test's package
+            // teardown is still releasing the COM server's binary on x86 Win10
+            // 22H2. Same transient family we retry for AddPackageAsync; bounded
+            // retry here so individual test methods aren't false-failed.
+            wil::com_ptr<INotificationsLongRunningPlatform> notificationPlatform;
+            constexpr int c_maxAttempts{ 5 };
+            DWORD backoffMs{ 1000 };
+            for (int attempt{ 1 }; attempt <= c_maxAttempts; ++attempt)
+            {
+                try
+                {
+                    notificationPlatform = NotificationPlatform::GetNotificationPlatform();
+                    break;
+                }
+                catch (const wil::ResultException& e)
+                {
+                    const HRESULT hr{ e.GetErrorCode() };
+                    const bool isTransient{
+                        hr == HRESULT_FROM_WIN32(ERROR_PACKAGES_IN_USE) ||
+                        hr == HRESULT_FROM_WIN32(ERROR_INSTALL_POLICY_FAILURE) ||
+                        hr == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION) };
+                    if (!isTransient || attempt == c_maxAttempts)
+                    {
+                        throw;
+                    }
+                    WEX::Logging::Log::Comment(WEX::Common::String().Format(
+                        L"GetNotificationPlatform() attempt %d/%d threw transient HRESULT 0x%08X; sleeping %u ms before retry",
+                        attempt, c_maxAttempts, hr, backoffMs));
+                    Sleep(backoffMs);
+                    backoffMs = (std::min<DWORD>)(backoffMs * 2, 8000);
+                }
+            }
+            VERIFY_IS_NOT_NULL(notificationPlatform);
+
+            return notificationPlatform;
+        }
+
+        TEST_CLASS_SETUP(ClassInit)
+        {
+
+            ::Test::Bootstrap::Setup();
+
+            PCWSTR testFrameworkPackageFamilyName = ::Test::Bootstrap::TP::WindowsAppRuntimeFramework::c_PackageFamilyName;
+            PCWSTR testMainPackageFamilyName = ::Test::Bootstrap::TP::WindowsAppRuntimeMain::c_PackageFamilyName;
+
+
+            // For Windows 11 newer versions, the TestInitialize will fail fast if we pass a non null package family name.
+            // https://github.com/microsoft/WindowsAppSDK/blob/main/dev/Common/WindowsAppRuntime.VersionInfo.cpp#L123-L133
+            if (MddCore::Win11::IsSupported())
+            {
+                testMainPackageFamilyName = nullptr;
+            }
+
+            ::WindowsAppRuntime::VersionInfo::TestInitialize(testFrameworkPackageFamilyName, testMainPackageFamilyName);
+
+            return true;
+        }
+
+        TEST_CLASS_CLEANUP(ClassUninit)
+        {
+            ::WindowsAppRuntime::VersionInfo::TestShutdown();
+            ::Test::Bootstrap::Cleanup();
+            return true;
+        }
+
+        TEST_METHOD(LaunchLRP_FromStartupTask)
+        {
+            VerifyLRP_IsRunning(false);
+
+            // Build the Solution OutDir path where the Startup Task exe is.
+            // Path: $OutDir/WindowsAppRuntime.Test.Singleton.Msix/msix/PushNotificationsLongRunningTask.StartupTask.exe
+            auto startupTaskExePath{ Test::FileSystem::GetSolutionOutDirPath() / Test::Packages::WindowsAppRuntimeSingleton::c_PackageDirName };
+            startupTaskExePath += LR"(.Msix/msix/PushNotificationsLongRunningTask.StartupTask.exe)";
+
+            // The startup task starts the LRP via out-of-proc COM activation of the Singleton package's LRP
+            // server and exits once that activation completes. On loaded test agents that intermittently took
+            // longer than the fixed 5s this test used to sleep, and the first activation right after ClassInit
+            // (re)registers the Singleton package can transiently fail. So wait for the startup task to finish
+            // rather than sleeping a fixed amount, give the LRP a moment to show up in the process snapshot, and
+            // relaunch the startup task (bounded) if it exited without starting the LRP.
+            constexpr int c_maxLaunches{ 3 };
+            constexpr DWORD c_startupTaskTimeoutInMilliseconds{ 60000 };
+            constexpr ULONGLONG c_lrpStartTimeoutInMilliseconds{ 5000 };
+            for (int launch{ 1 }; launch <= c_maxLaunches; ++launch)
+            {
+                STARTUPINFO startupInfo{};
+                ZeroMemory(&startupInfo, sizeof(startupInfo));
+                startupInfo.cb = sizeof(startupInfo);
+
+                wil::unique_process_information processInfo;
+                VERIFY_NO_THROW(winrt::check_bool(CreateProcess(
+                    startupTaskExePath.c_str(),
+                    nullptr, // command line options
+                    nullptr, // process attributes
+                    nullptr, // thread attributes
+                    FALSE,   // inherit handles
+                    NORMAL_PRIORITY_CLASS, // creation flags
+                    nullptr, // lpEnvironment
+                    nullptr, // current directory for the process
+                    &startupInfo,
+                    &processInfo)));
+
+                const DWORD waitResult{ WaitForSingleObject(processInfo.hProcess, c_startupTaskTimeoutInMilliseconds) };
+                if (WaitForLRP_IsRunning(c_lrpStartTimeoutInMilliseconds))
+                {
+                    break;
+                }
+
+                DWORD exitCode{ STILL_ACTIVE };
+                (void)GetExitCodeProcess(processInfo.hProcess, &exitCode);
+                WEX::Logging::Log::Comment(WEX::Common::String().Format(
+                    L"%s not running after startup task launch %d/%d (wait=0x%X exitCode=0x%08X)",
+                    c_lrpExeName, launch, c_maxLaunches, waitResult, exitCode));
+                if (waitResult != WAIT_OBJECT_0)
+                {
+                    // The startup task is still stuck activating the LRP so launching more won't help
+                    break;
+                }
+            }
+            VerifyLRP_IsRunning(true);
+        }
+
+        static bool IsLRP_Running()
+        {
+            wil::unique_hfile processesSnapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+            if (!processesSnapshot)
+            {
+                return false;
+            }
+
+            PROCESSENTRY32 processEntry{};
+            processEntry.dwSize = sizeof(processEntry);
+            for (BOOL result{ Process32First(processesSnapshot.get(), &processEntry) }; result != FALSE; result = Process32Next(processesSnapshot.get(), &processEntry))
+            {
+                if (_wcsicmp(c_lrpExeName, processEntry.szExeFile) == 0)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        static bool WaitForLRP_IsRunning(ULONGLONG timeoutInMilliseconds)
+        {
+            const ULONGLONG start{ GetTickCount64() };
+            for (;;)
+            {
+                if (IsLRP_Running())
+                {
+                    return true;
+                }
+                if ((GetTickCount64() - start) >= timeoutInMilliseconds)
+                {
+                    return false;
+                }
+                Sleep(250);
+            }
+        }
+
+        void VerifyLRP_IsRunning(bool isRunning)
+        {
+            wil::unique_handle processesSnapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+            VERIFY_IS_NOT_NULL(processesSnapshot.get());
+
+            PROCESSENTRY32 processEntry{};
+            processEntry.dwSize = sizeof(processEntry);
+
+            BOOL result{ Process32First(processesSnapshot.get(), &processEntry) };
+            while (result != FALSE)
+            {
+                if (_wcsicmp(c_lrpExeName, processEntry.szExeFile) == 0)
+                {
+                    VERIFY_IS_TRUE(isRunning);
+                    DWORD processId{ processEntry.th32ProcessID };
+
+                    wil::unique_handle longRunningProcessHandle(OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, processId));
+                    DWORD exitCode{};
+                    BOOL exitCodeProcess{ GetExitCodeProcess(longRunningProcessHandle.get(), &exitCode) };
+
+                    VERIFY_SUCCEEDED(exitCodeProcess == FALSE ? GetLastError() : S_OK);
+                    VERIFY_ARE_EQUAL(exitCode, STILL_ACTIVE);
+
+                    return;
+                }
+
+                result = Process32Next(processesSnapshot.get(), &processEntry);
+            }
+
+            VERIFY_IS_FALSE(isRunning);
+        }
+
+        TEST_METHOD(RegisterUnregisterLongRunningActivator)
+        {
+            auto notificationPlatform{ GetNotificationPlatform() };
+
+            wil::unique_cotaskmem_string lrpAppId;
+            VERIFY_NO_THROW(notificationPlatform->RegisterFullTrustApplication(c_processName, winrt::guid(), &lrpAppId));
+            VERIFY_NO_THROW(notificationPlatform->RegisterLongRunningActivator(c_processName));
+            VERIFY_NO_THROW(notificationPlatform->UnregisterLongRunningActivator(c_processName));
+            VERIFY_NO_THROW(notificationPlatform->UnregisterFullTrustApplication(c_processName));
+        }
+
+        TEST_METHOD(RegisterUnregisterLongRunningActivatorWithClsid)
+        {
+            auto notificationPlatform{ GetNotificationPlatform() };
+
+            wil::unique_cotaskmem_string lrpAppId;
+            VERIFY_NO_THROW(notificationPlatform->RegisterFullTrustApplication(c_processName, c_remoteId, &lrpAppId));
+            VERIFY_NO_THROW(notificationPlatform->RegisterLongRunningActivatorWithClsid(c_processName, c_remoteId));
+            VERIFY_NO_THROW(notificationPlatform->UnregisterLongRunningActivator(c_processName));
+            VERIFY_NO_THROW(notificationPlatform->UnregisterFullTrustApplication(c_processName));
+        }
+
+        TEST_METHOD(AddRemoveToastRegistrationMappingNoSink)
+        {
+            auto notificationPlatform{ GetNotificationPlatform() };
+
+            VERIFY_NO_THROW(notificationPlatform->AddToastRegistrationMapping(c_processName, c_appId));
+            VERIFY_NO_THROW(notificationPlatform->RemoveToastRegistrationMapping(c_processName));
+        }
+
+        TEST_METHOD(AddRemoveToastRegistrationMappingWithSink)
+        {
+            auto notificationPlatform{ GetNotificationPlatform() };
+
+            wil::unique_cotaskmem_string lrpAppId;
+            VERIFY_NO_THROW(notificationPlatform->RegisterFullTrustApplication(c_processName, c_remoteId, &lrpAppId));
+            VERIFY_NO_THROW(notificationPlatform->RegisterLongRunningActivator(lrpAppId.get()));
+            VERIFY_NO_THROW(notificationPlatform->AddToastRegistrationMapping(c_processName, c_appId));
+            VERIFY_NO_THROW(notificationPlatform->RemoveToastRegistrationMapping(c_processName));
+            VERIFY_NO_THROW(notificationPlatform->UnregisterLongRunningActivator(c_processName));
+            VERIFY_NO_THROW(notificationPlatform->UnregisterFullTrustApplication(c_processName));
+        }
+    };
+}

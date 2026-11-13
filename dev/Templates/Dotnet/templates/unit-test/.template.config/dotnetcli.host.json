@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json.schemastore.org/dotnetcli.host",
+  "symbolInfo": {
+    "dotnetVersion": {
+      "longName": "dotnet-version",
+      "shortName": "tfm",
+      "description": "Base TFM for the WinUI project (for example net10.0)."
+    },
+    "targetPlatformMinVersion": {
+      "longName": "target-platform-min-version",
+      "shortName": "tpmv",
+      "description": "Minimum supported Windows version."
+    },
+    "publisherDn": {
+      "longName": "publisher-dn",
+      "shortName": "publisher",
+      "description": "Publisher distinguished name stored in Package.appxmanifest."
+    },
+    "publisherDisplay": {
+      "longName": "publisher-display",
+      "shortName": "publisherName",
+      "description": "Publisher display name stored in Package.appxmanifest."
+    },
+    "windowsAppSdkVersion": {
+      "longName": "wasdk-version",
+      "shortName": "wasdkv",
+      "description": "Pin to a specific Windows App SDK NuGet version. Leave empty for latest."
+    },
+    "windowsSdkBuildToolsVersion": {
+      "longName": "build-tools-version",
+      "shortName": "btv",
+      "description": "Pin to a specific Windows SDK BuildTools NuGet version. Leave empty for latest."
+    },
+    "windowsSdkBuildToolsWinAppVersion": {
+      "longName": "winapp-version",
+      "shortName": "wav",
+      "description": "Pin to a specific Windows SDK BuildTools WinApp NuGet version. Leave empty for latest."
+    },
+    "mstestVersion": {
+      "longName": "mstest-version",
+      "shortName": "mv",
+      "description": "Pin to a specific MSTest NuGet version. Leave empty for latest."
+    },
+    "TestRunner": {
+      "longName": "test-runner",
+      "shortName": "",
+      "description": "Select the test runner/platform."
+    },
+    "Fixture": {
+      "longName": "fixture",
+      "shortName": "",
+      "description": "Select the fixture kinds to include."
+    },
+    "Packaging": {
+      "longName": "packaging",
+      "shortName": "",
+      "description": "Choose a packaged MSIX test app or an unpackaged desktop test app."
+    },
+    "skipRestore": {
+      "longName": "no-restore",
+      "shortName": "",
+      "description": "Skip the final automatic restore. Package-add post-actions still restore packages when resolving latest versions or adding packaged Microsoft.Testing.Platform support."
+    }
+  }
+}

@@ -14,17 +14,10 @@
 /// MSIX Dynamic Dependency HRESULT: Data Store not found (Windows App Runtime's Main package not registered?)
 #define MDD_E_WINDOWSAPPRUNTIME_DATASTORE_NOT_FOUND     _HRESULT_TYPEDEF_(0x80040002L)
 
-/// MSIX Dynamic Dependency: Bootstrap initialization is scanning for an applicable DynamicDependencyLifetimeManager (DDLM) package
-#define MDD_E_BOOTSTRAP_INITIALIZE_SCAN_FOR_DDLM        _HRESULT_TYPEDEF_(0x80040010L)
-
-/// MSIX Dynamic Dependency: Bootstrap initialization found a DynamicDependencyLifetimeManager (DDLM) but doesn't match the criteria
-#define MDD_E_BOOTSTRAP_INITIALIZE_DDLM_SCAN_NO_MATCH   _HRESULT_TYPEDEF_(0x80040011L)
-
-/// MSIX Dynamic Dependency: Bootstrap initialization found a DynamicDependencyLifetimeManager (DDLM) that does match the criteria
-#define MDD_E_BOOTSTRAP_INITIALIZE_DDLM_SCAN_MATCH      _HRESULT_TYPEDEF_(0x80040012L)
-
-/// MSIX Dynamic Dependency: Bootstrap initialization found an applicable DynamicDependencyLifetimeManager (DDLM) best matching the criteria
-#define MDD_E_BOOTSTRAP_INITIALIZE_DDLM_FOUND           _HRESULT_TYPEDEF_(0x80040013L)
+// Reserved: _HRESULT_TYPEDEF_(0x80040010L)
+// Reserved: _HRESULT_TYPEDEF_(0x80040011L)
+// Reserved: _HRESULT_TYPEDEF_(0x80040012L)
+// Reserved: _HRESULT_TYPEDEF_(0x80040013L)
 
 /// MSIX Dynamic Dependency: Bootstrap initialization request is incompatible with current Bootstrap initialization state.
 #define MDD_E_BOOTSTRAP_INITIALIZE_INCOMPATIBLE         _HRESULT_TYPEDEF_(0x80040014L)
@@ -192,14 +185,25 @@ STDAPI MddAddPackageDependency(
 STDAPI_(void) MddRemovePackageDependency(
     _In_ MDD_PACKAGEDEPENDENCY_CONTEXT packageDependencyContext) noexcept;
 
-/// Return the package full name that would be used if the
-/// PackageDependency were to be resolved. Does not add the
+/// Return the package full name to which the
+/// PackageDependency has been resolved. Does not add the
 /// package to the process graph.
 ///
 /// @param packageFullName allocated via HeapAlloc; use HeapFree to deallocate.
 ///                        If the package dependency cannot be resolved the function
 ///                        succeeds but packageFullName is nullptr.
+/// @note An unknown packageDependencyId returns S_OK and packageFullName=null.
 STDAPI MddGetResolvedPackageFullNameForPackageDependency(
+    _In_ PCWSTR packageDependencyId,
+    _Outptr_result_maybenull_ PWSTR* packageFullName) noexcept;
+
+/// Return the package full name to which the
+/// PackageDependency has been resolved. Does not add the
+/// package to the process graph.
+///
+/// @param packageFullName allocated via HeapAlloc; use HeapFree to deallocate.
+/// @note An unknown packageDependencyId returns HRESULT_FROM_WIN32(ERROR_NOT_FOUND).
+STDAPI MddGetResolvedPackageFullNameForPackageDependency2(
     _In_ PCWSTR packageDependencyId,
     _Outptr_result_maybenull_ PWSTR* packageFullName) noexcept;
 

@@ -28,22 +28,21 @@ void Test::DynamicDependency::Test_Win32::Create_Add_Architectures_Current()
 
     // -- TryCreate
 
-    // We're using the Neutral arhitecture as that's our test package's defined architecture.
-    // That's OK, what matters is we're not using MddPackageDependencyProcessorArchitectures::None
-    // so we exercise the not-default-whatever-deemed-appropriate architecture codepath.
-    auto architectures{ MddPackageDependencyProcessorArchitectures::Neutral };
+    // We're using MddPackageDependencyProcessorArchitectures::None
+    // so we exercise the default-whatever-deemed-appropriate architecture codepath.
+    auto architectures{ MddPackageDependencyProcessorArchitectures::None };
     wil::unique_process_heap_string packageDependencyId_FrameworkMathAdd{ Mdd_TryCreate_FrameworkMathAdd(architectures) };
 
     VerifyPackageInPackageGraph(expectedPackageFullName_WindowsAppRuntimeFramework, S_OK);
     VerifyPackageNotInPackageGraph(expectedPackageFullName_FrameworkMathAdd, S_OK);
     VerifyPathEnvironmentVariable(packagePath_WindowsAppRuntimeFramework, pathEnvironmentVariable.c_str());
-    VerifyPackageDependency(packageDependencyId_FrameworkMathAdd.get(), S_OK, expectedPackageFullName_FrameworkMathAdd);
+    VerifyPackageDependency_Win11NotResolved(packageDependencyId_FrameworkMathAdd.get(), S_OK, expectedPackageFullName_FrameworkMathAdd);
 
     // -- Add
 
     wil::unique_process_heap_string packageFullName_FrameworkMathAdd;
     MDD_PACKAGEDEPENDENCY_CONTEXT packageDependencyContext_FrameworkMathAdd{ Mdd_Add(packageDependencyId_FrameworkMathAdd.get(), packageFullName_FrameworkMathAdd) };
-    VERIFY_IS_NOT_NULL(packageFullName_FrameworkMathAdd.get());
+    VERIFY_IS_NOT_NULL(packageFullName_FrameworkMathAdd.get(), WEX::Common::String().Format(L"PackageFullName=%s Expected=not-<null>", !packageFullName_FrameworkMathAdd ? L"<null>" : packageFullName_FrameworkMathAdd.get()));
     std::wstring actualPackageFullName_FrameworkMathAdd{ packageFullName_FrameworkMathAdd.get() };
     VERIFY_ARE_EQUAL(actualPackageFullName_FrameworkMathAdd, expectedPackageFullName_FrameworkMathAdd);
 
@@ -75,15 +74,17 @@ void Test::DynamicDependency::Test_Win32::Create_Add_Architectures_Current()
 
     // -- Remove
 
+    WEX::Logging::Log::Comment(WEX::Common::String().Format(L"MddRemovePackageDependency(%p)...", packageDependencyContext_FrameworkMathAdd));
     MddRemovePackageDependency(packageDependencyContext_FrameworkMathAdd);
 
     VerifyPackageInPackageGraph(expectedPackageFullName_WindowsAppRuntimeFramework, S_OK);
     VerifyPackageNotInPackageGraph(expectedPackageFullName_FrameworkMathAdd, S_OK);
     VerifyPathEnvironmentVariable(packagePath_WindowsAppRuntimeFramework, pathEnvironmentVariable.c_str());
-    VerifyPackageDependency(packageDependencyId_FrameworkMathAdd.get(), S_OK, expectedPackageFullName_FrameworkMathAdd);
+    VerifyPackageDependency_Win11NotResolved(packageDependencyId_FrameworkMathAdd.get(), S_OK, expectedPackageFullName_FrameworkMathAdd);
 
     // -- Delete
 
+    WEX::Logging::Log::Comment(WEX::Common::String().Format(L"MddDeletePackageDependency(%s)...", packageDependencyId_FrameworkMathAdd.get()));
     MddDeletePackageDependency(packageDependencyId_FrameworkMathAdd.get());
 
     VerifyPackageInPackageGraph(expectedPackageFullName_WindowsAppRuntimeFramework, S_OK);

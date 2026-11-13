@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors.
+// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
 #pragma once
@@ -12,6 +12,7 @@
 #include <shellapi.h>
 #include <appmodel.h>
 #include <xmllite.h>
+#include <sddl.h>
 
 #include <string>
 #include <string_view>
@@ -23,13 +24,16 @@
 #include <filesystem>
 
 #include <wil/cppwinrt.h>
+#include <wil/cppwinrt_authoring.h>
 #include <wil/token_helpers.h>
 #include <wil/stl.h>
 #include <wil/resource.h>
 #include <wil/result_macros.h>
 #include <wil/filesystem.h>
+#include <wil/registry.h>
 #include <wil/com.h>
 #include <wil/win32_helpers.h>
+#include <wil/winrt.h>
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -38,6 +42,7 @@
 #include <winrt/Windows.ApplicationModel.Activation.h>
 #include <winrt/Windows.ApplicationModel.Core.h>
 #include <winrt/Windows.ApplicationModel.AppExtensions.h>
+#include <winrt/Windows.ApplicationModel.DataTransfer.h>
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Data.Xml.Dom.h>
 #include <winrt/Windows.Management.Core.h>
@@ -49,10 +54,16 @@
 #include <MsixDynamicDependency.h>
 
 #include <appmodel.identity.h>
+#include <appmodel.package.h>
 #include <appmodel.packagegraph.h>
+#include <exportloader.h>
+#include <iswindowsversion.h>
 #include <microsoft.configuration.h>
+#include <microsoft.filesystem.path.h>
+#include <microsoft.foundation.string.h>
 #include <microsoft.utf8.h>
 #include <security.integritylevel.h>
+#include <security.user.h>
 #include <windowsappruntime.selfcontained.h>
 #include <windowsappruntime.versioninfo.h>
 

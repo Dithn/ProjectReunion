@@ -1,10 +1,15 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors.
+// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
 #include "pch.h"
 
+#include <MddWin11.h>
 #include <MddDetourPackageGraph.h>
 #include <urfw.h>
+
+// Including this file once per binary will automatically opt WIL error handling macros into calling RoOriginateError when they
+// begin logging a new error.  This greatly improves the debuggability of errors that propagate before a failfast.
+#include <wil/result_originate.h>
 
 #include <../Detours/detours.h>
 
@@ -17,6 +22,12 @@ static HRESULT DetoursInitialize()
     }
 
     // Do we need to detour APIs?
+    if (!MddNeedsDetours() && !UrfwNeedsDetours())
+    {
+        return S_OK;
+    }
+
+    // No detours needed in a 'detours helper process'
     if (DetourIsHelperProcess())
     {
         return S_OK;
@@ -25,10 +36,8 @@ static HRESULT DetoursInitialize()
     // Detour APIs to our implementation
     DetourRestoreAfterWith();
     FAIL_FAST_IF_WIN32_ERROR(DetourTransactionBegin());
-
     FAIL_FAST_IF_FAILED(MddDetourPackageGraphInitialize());
     FAIL_FAST_IF_FAILED(UrfwInitialize());
-
     FAIL_FAST_IF_WIN32_ERROR(DetourTransactionCommit());
     return S_OK;
 }
@@ -50,10 +59,8 @@ static HRESULT DetoursShutdown()
     // Stop Detour'ing APIs to our implementation
     FAIL_FAST_IF_WIN32_ERROR(DetourTransactionBegin());
     FAIL_FAST_IF_WIN32_ERROR(DetourUpdateThread(GetCurrentThread()));
-
     UrfwShutdown();
     MddDetourPackageGraphShutdown();
-
     FAIL_FAST_IF_WIN32_ERROR(DetourTransactionCommit());
     return S_OK;
 }
@@ -65,12 +72,14 @@ BOOL APIENTRY DllMain(HMODULE hmodule, DWORD  reason, LPVOID reserved)
     case DLL_PROCESS_ATTACH:
     {
         DisableThreadLibraryCalls(hmodule);
+        FAIL_FAST_IF_FAILED(MddWin11Initialize());
         FAIL_FAST_IF_FAILED(DetoursInitialize());
         break;
     }
     case DLL_PROCESS_DETACH:
     {
         DetoursShutdown();
+        MddWin11Shutdown();
         break;
     }
     case DLL_THREAD_ATTACH:

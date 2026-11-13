@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors.
+// Copyright (c) Microsoft Corporation and Contributors.
 // Licensed under the MIT License.
 
 #pragma once
@@ -39,7 +39,7 @@ namespace WindowsAppRuntimeInstaller::InstallActivity
         GUID m_deploymentErrorActivityId{};
         WindowsAppRuntimeInstaller_TraceLogger::Install m_activity;
         WilFailure m_lastFailure{};
-        HANDLE m_hEventLog;
+        HANDLE m_hEventLog{};
         bool m_isLocalSystemUser{ Security::User::IsLocalSystem() };
         winrt::hstring m_existingPackageIfHigherVersion;
 
@@ -137,7 +137,7 @@ namespace WindowsAppRuntimeInstaller::InstallActivity
             return m_hEventLog;
         }
 
-        const BOOL& DeregisterInstallerEventSourceW()
+        const BOOL DeregisterInstallerEventSourceW()
         {
             return DeregisterEventSource(m_hEventLog);
         }

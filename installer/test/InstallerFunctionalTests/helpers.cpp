@@ -58,11 +58,39 @@ namespace WindowsAppRuntimeInstallerTests
     {
         Log::Comment(WEX::Common::String().Format(L"Removing package: %ws", packageName.c_str()));
         PackageManager manager;
-        auto result{ manager.RemovePackageAsync(packageName).get() };
-        Log::Comment(WEX::Common::String().Format(L"Removal result: 0x%0X", result.ExtendedErrorCode().value));
-        if (!ignoreFailures)
+
+        for (int attempt = 1; attempt <= c_packageRemovalRetryCount; ++attempt)
         {
-            winrt::check_hresult(result.ExtendedErrorCode());
+            auto result{ manager.RemovePackageAsync(packageName).get() };
+            const auto hr{ result.ExtendedErrorCode().value };
+            Log::Comment(WEX::Common::String().Format(L"Removal result: 0x%0X (attempt %d/%d)", hr, attempt, c_packageRemovalRetryCount));
+
+            if (SUCCEEDED(hr))
+            {
+                return;
+            }
+
+            // If the package is not found, treat as success — nothing to remove.
+            if (hr == HRESULT_FROM_WIN32(ERROR_NOT_FOUND))
+            {
+                Log::Comment(WEX::Common::String().Format(L"Package not found (already removed): %ws", packageName.c_str()));
+                return;
+            }
+
+            // Retry on transient errors (package in use, etc.) unless this is the last attempt.
+            if (attempt < c_packageRemovalRetryCount)
+            {
+                Log::Warning(WEX::Common::String().Format(L"Retrying removal of package %ws after %dms (error: 0x%0X)", packageName.c_str(), c_packageRemovalRetryDelayMs, hr));
+                Sleep(c_packageRemovalRetryDelayMs);
+            }
+            else if (!ignoreFailures)
+            {
+                winrt::check_hresult(result.ExtendedErrorCode());
+            }
+            else
+            {
+                Log::Warning(WEX::Common::String().Format(L"Failed to remove package %ws after %d attempts (error: 0x%0X)", packageName.c_str(), c_packageRemovalRetryCount, hr));
+            }
         }
     }
 
@@ -88,6 +116,20 @@ namespace WindowsAppRuntimeInstallerTests
         {
             TryRemoveProvisionedPackage(packageFamilyName);
         }
+    }
+
+    bool VerifyAllPackagesRemoved()
+    {
+        bool allRemoved{ true };
+        for (const auto& packageName : c_packages)
+        {
+            if (IsPackageRegistered(packageName))
+            {
+                Log::Warning(WEX::Common::String().Format(L"Setup error: package still registered after removal: %ws", packageName.c_str()));
+                allRemoved = false;
+            }
+        }
+        return allRemoved;
     }
 
     bool IsPackageRegistered(const std::wstring& packageFullName)
@@ -118,6 +160,10 @@ namespace WindowsAppRuntimeInstallerTests
 
     std::filesystem::path GetModulePath(HMODULE hmodule)
     {
+        if (hmodule == NULL)
+        {
+            hmodule = GetModuleHandle(L"InstallerFunctionalTests.dll");
+        }
         auto path{ GetModuleFileName(hmodule) };
         return path.remove_filename();
     }
@@ -134,7 +180,7 @@ namespace WindowsAppRuntimeInstallerTests
 
         // TAEF runs as a package under the installer, so we have to go way up the parent root in order to
         // get to the common project root and then get to the build output.
-        return path.parent_path().parent_path().parent_path().parent_path().parent_path().parent_path().parent_path();
+        return path.parent_path().parent_path();
     }
 
     std::filesystem::path GetInstallerPath()

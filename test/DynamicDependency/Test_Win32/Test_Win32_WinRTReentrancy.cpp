@@ -36,13 +36,13 @@ void Test::DynamicDependency::Test_Win32::WinRTReentrancy()
     VerifyPackageInPackageGraph(expectedPackageFullName_WindowsAppRuntimeFramework, S_OK);
     VerifyPackageNotInPackageGraph(expectedPackageFullName_FrameworkWidgets, S_OK);
     VerifyPathEnvironmentVariable(packagePath_WindowsAppRuntimeFramework, pathEnvironmentVariable.c_str());
-    VerifyPackageDependency(packageDependencyId_FrameworkWidgets.get(), S_OK, expectedPackageFullName_FrameworkWidgets);
+    VerifyPackageDependency_Win11NotResolved(packageDependencyId_FrameworkWidgets.get(), S_OK, expectedPackageFullName_FrameworkWidgets);
 
     // -- Add
 
     wil::unique_process_heap_string packageFullName_FrameworkWidgets;
     MDD_PACKAGEDEPENDENCY_CONTEXT packageDependencyContext_FrameworkWidgets{ Mdd_Add(packageDependencyId_FrameworkWidgets.get(), packageFullName_FrameworkWidgets) };
-    VERIFY_IS_NOT_NULL(packageFullName_FrameworkWidgets.get());
+    VERIFY_IS_NOT_NULL(packageFullName_FrameworkWidgets.get(), WEX::Common::String().Format(L"PackageFullName=%s Expected=not-<null>", !packageFullName_FrameworkWidgets ? L"<null>" : packageFullName_FrameworkWidgets.get()));
     std::wstring actualPackageFullName_FrameworkWidgets{ packageFullName_FrameworkWidgets.get() };
     VERIFY_ARE_EQUAL(actualPackageFullName_FrameworkWidgets, expectedPackageFullName_FrameworkWidgets);
 
@@ -105,15 +105,17 @@ void Test::DynamicDependency::Test_Win32::WinRTReentrancy()
 
     // -- Remove
 
+    WEX::Logging::Log::Comment(WEX::Common::String().Format(L"MddRemovePackageDependency(%p)...", packageDependencyContext_FrameworkWidgets));
     MddRemovePackageDependency(packageDependencyContext_FrameworkWidgets);
 
     VerifyPackageInPackageGraph(expectedPackageFullName_WindowsAppRuntimeFramework, S_OK);
     VerifyPackageNotInPackageGraph(expectedPackageFullName_FrameworkWidgets, S_OK);
     VerifyPathEnvironmentVariable(packagePath_WindowsAppRuntimeFramework, pathEnvironmentVariable.c_str());
-    VerifyPackageDependency(packageDependencyId_FrameworkWidgets.get(), S_OK, expectedPackageFullName_FrameworkWidgets);
+    VerifyPackageDependency_Win11NotResolved(packageDependencyId_FrameworkWidgets.get(), S_OK, expectedPackageFullName_FrameworkWidgets);
 
     // -- Delete
 
+    WEX::Logging::Log::Comment(WEX::Common::String().Format(L"MddDeletePackageDependency(%s)...", packageDependencyId_FrameworkWidgets.get()));
     MddDeletePackageDependency(packageDependencyId_FrameworkWidgets.get());
 
     VerifyPackageInPackageGraph(expectedPackageFullName_WindowsAppRuntimeFramework, S_OK);

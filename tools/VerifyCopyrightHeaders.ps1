@@ -13,13 +13,16 @@ Param(
     [switch]$Fix = $false
 )
 
+Set-StrictMode -Version 3.0
+$ErrorActionPreference = 'Stop'
+
 $copyrightHeaderText = (
     "Copyright (c) Microsoft Corporation and Contributors.",
     "Licensed under the MIT License."
 )
 
 $include = ('*.cs', '*.cpp', '*.h', '*.idl', '*.xaml')
-$exclude = [RegEx]'\\dev\\Detours\\|\\BuildOutput\\|\\obj\\|\\localpackages\\|\\packages\\|\\specs\\|\\temp\\|\\Debug\\|\\Release\\'
+$exclude = [RegEx]'\\dev\\Detours\\|\\BuildOutput\\|\\obj\\|\\localpackages\\|\\packages\\|\\Packages\\|\\specs\\|\\temp\\|\\Debug\\|\\Release\\|\\ItemTemplates\\|\\ProjectTemplates\\|\\Dotnet\\templates\\|\\WindowsAppSDKAggregator\\'
 $files = dir $PSScriptRoot\..\* -recurse -include $include | Where FullName -notmatch $exclude
 
 $errorCount = 0

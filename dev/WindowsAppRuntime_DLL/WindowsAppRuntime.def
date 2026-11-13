@@ -2,6 +2,7 @@
 ; Licensed under the MIT License. See LICENSE in the project root for license information.
 
 EXPORTS
+    DetourFinishHelperProcess                               @1 NONAME
     DllCanUnloadNow = WINRT_CanUnloadNow                    PRIVATE
     DllGetActivationFactory = WINRT_GetActivationFactory    PRIVATE
     DllGetClassObject                                       PRIVATE
@@ -10,10 +11,12 @@ EXPORTS
     MddDeletePackageDependency
     MddGetIdForPackageDependencyContext
     MddGetResolvedPackageFullNameForPackageDependency
+    MddGetResolvedPackageFullNameForPackageDependency2
     MddRemovePackageDependency
     MddTryCreatePackageDependency
     MddLifetimeManagementGC
     MddLifetimeManagementTestInitialize
+
     MddGetPackageGraphRevisionId
     MddGetGenerationId
 
@@ -26,4 +29,10 @@ EXPORTS
     WindowsAppRuntime_VersionInfo_MSIX_Main_PackageFamilyName_Get
     WindowsAppRuntime_VersionInfo_TestInitialize
 
+    ContainmentTestInitialize
+
     WindowsAppRuntime_EnsureIsLoaded
+
+    GetPackageFilePath
+    GetPackageFilePathInPackageGraph
+    IsPackageFeatureSupported

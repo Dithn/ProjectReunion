@@ -1,10 +1,11 @@
-﻿// Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
+// Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 #include "pch.h"
 
 #include "PushNotification-Test-Constants.h"
 #include "BaseTestSuite.h"
+#include "MddWin11.h"
 
 using namespace WEX::Common;
 using namespace WEX::Logging;
@@ -18,6 +19,8 @@ using namespace winrt::Windows::Management::Deployment;
 using namespace winrt::Windows::Storage;
 using namespace winrt::Windows::System;
 using namespace winrt::Microsoft::Windows::PushNotifications;
+using namespace std::literals;
+using namespace std::chrono;
 
 void BaseTestSuite::ClassSetup()
 {
@@ -34,17 +37,24 @@ void BaseTestSuite::MethodSetup()
     bool isSelfContained{};
     VERIFY_SUCCEEDED(TestData::TryGetValue(L"SelfContained", isSelfContained));
 
-    if (!isSelfContained)
+    PCWSTR testFrameworkPackageFamilyName = ::Test::Bootstrap::TP::WindowsAppRuntimeFramework::c_PackageFamilyName;
+    PCWSTR testMainPackageFamilyName = ::Test::Bootstrap::TP::WindowsAppRuntimeMain::c_PackageFamilyName;
+
+    if (isSelfContained)
     {
-        ::WindowsAppRuntime::VersionInfo::TestInitialize(::Test::Bootstrap::TP::WindowsAppRuntimeFramework::c_PackageFamilyName,
-                                                         ::Test::Bootstrap::TP::WindowsAppRuntimeMain::c_PackageFamilyName);
-        VERIFY_IS_FALSE(::WindowsAppRuntime::SelfContained::IsSelfContained());
+        testFrameworkPackageFamilyName = testMainPackageFamilyName = c_fakePackageFamilyName;
     }
-    else
+
+    // For Windows 11 newer versions, the TestInitialize will fail fast if we pass a non null package family name.
+    // https://github.com/microsoft/WindowsAppSDK/blob/main/dev/Common/WindowsAppRuntime.VersionInfo.cpp#L123-L133
+    if (MddCore::Win11::IsSupported())
     {
-        ::WindowsAppRuntime::VersionInfo::TestInitialize(L"I_don't_exist_package!", L"I_don't_exist_package!");
-        VERIFY_IS_TRUE(::WindowsAppRuntime::SelfContained::IsSelfContained());
+        testMainPackageFamilyName = nullptr;
     }
+
+    ::WindowsAppRuntime::VersionInfo::TestInitialize(testFrameworkPackageFamilyName, testMainPackageFamilyName);
+
+    VERIFY_ARE_EQUAL(isSelfContained, ::WindowsAppRuntime::SelfContained::IsSelfContained());
 }
 
 void BaseTestSuite::MethodCleanup()
@@ -99,12 +109,66 @@ void BaseTestSuite::ChannelRequestUsingNullRemoteId()
     }
 }
 
+// Returns true (and marks the test as Skipped) if `hr` is a known transient
+// WNS production-service error that's outside the SDK's control. The test
+// reaches the live WNS endpoint to allocate a channel, so service-side
+// degradations would otherwise produce false-positive test failures.
+static bool SkipIfWnsServiceError(HRESULT hr, PCWSTR testName)
+{
+    // 0x8007139F == HRESULT_FROM_WIN32(ERROR_INVALID_STATE) - observed on
+    //   multiple test images (Win10 rs5, LTSC.2021, Server.2025, Win11 24H2)
+    //   when WNS rejects channel allocation as transiently unavailable.
+    if (hr == HRESULT_FROM_WIN32(ERROR_INVALID_STATE))
+    {
+        WEX::Logging::Log::Result(WEX::Logging::TestResults::Skipped,
+            WEX::Common::String().Format(
+                L"%s: WNS returned transient service error 0x%08X; skipping (test depends on live WNS availability)",
+                testName, hr));
+        return true;
+    }
+    return false;
+}
+
 void BaseTestSuite::ChannelRequestUsingRemoteId()
 {
     if (PushNotificationManager::Default().IsSupported())
     {
         auto channelOperation{ PushNotificationManager::Default().CreateChannelAsync(c_azureRemoteId) };
-        VERIFY_SUCCEEDED(ChannelRequestHelper(channelOperation));
+        const HRESULT hr{ ChannelRequestHelper(channelOperation) };
+        if (FAILED(hr) && SkipIfWnsServiceError(hr, L"ChannelRequestUsingRemoteId"))
+        {
+            return;
+        }
+        VERIFY_SUCCEEDED(hr);
+    }
+    else
+    {
+        auto channelOperation{ PushNotificationManager::Default().CreateChannelAsync(c_azureRemoteId) };
+        VERIFY_ARE_EQUAL(ChannelRequestHelper(channelOperation), E_FAIL);
+    }
+}
+
+void BaseTestSuite::ChannelRequestCheckExpirationTime()
+{
+    if (PushNotificationManager::Default().IsSupported())
+    {
+        auto channelOperation{ PushNotificationManager::Default().CreateChannelAsync(c_azureRemoteId) };
+        const HRESULT hr{ ChannelRequestHelper(channelOperation) };
+        if (FAILED(hr) && SkipIfWnsServiceError(hr, L"ChannelRequestCheckExpirationTime"))
+        {
+            return;
+        }
+        VERIFY_SUCCEEDED(hr);
+
+        auto channel{ channelOperation.GetResults().Channel() };
+        auto expirationTime{ channel.ExpirationTime() };
+
+        auto expiryLowerBound{ winrt::clock::now() };
+        auto expiryUpperBound{ expiryLowerBound + (hours(24) * 30) + minutes(1) };
+
+        // Need to add 30 days to match expiration time.
+        VERIFY_IS_GREATER_THAN(expirationTime, expiryLowerBound);
+        VERIFY_IS_LESS_THAN(expirationTime, expiryUpperBound);
     }
     else
     {

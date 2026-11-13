@@ -19,14 +19,15 @@
     #define CONFIGURATION L"Release"
 #endif
 
-#define BUILDOUTPUT_DIR L"BuildOutput"
 #define INSTALLER_DIR L"WindowsAppRuntimeInstall"
-#define INSTALLER_FILENAME L"WindowsAppRuntimeInstall.exe"
-#define INSTALLER_EXE_PATH BUILDOUTPUT_DIR L"\\" CONFIGURATION L"\\" ARCH L"\\" INSTALLER_DIR L"\\" INSTALLER_FILENAME
+#define INSTALLER_FILENAME L"WindowsAppRuntimeInstall-" ARCH L".exe"
+#define INSTALLER_EXE_PATH INSTALLER_DIR L"\\" INSTALLER_FILENAME
 
 namespace WindowsAppRuntimeInstallerTests
 {
     static const int c_phaseTimeout{ (30 * 1000) }; // 30 seconds
+    static const int c_packageRemovalRetryCount{ 5 };
+    static const int c_packageRemovalRetryDelayMs{ 5000 }; // 5 seconds (total: up to 25s)
 
     static const std::wstring c_x86FrameworkName{ L"WindowsAppRuntime.Test.InstallerFramework_1.0.0.0_x86__8wekyb3d8bbwe" };
     static const std::wstring c_x64FrameworkName{ L"WindowsAppRuntime.Test.InstallerFramework_1.0.0.0_x64__8wekyb3d8bbwe" };

@@ -9,9 +9,13 @@ languages used in implementation or testing.
 
 # Coding Guidelines and Policies
 
+- [Component Versioning Across Channels](Coding-Guidelines/ComponentVersioning.md) (interim policy until monobuild)
+- Git
+  - [Checkin-to-main/develop Policy](Coding-Guidelines/GitCheckinToMainPolicy.md)
+  - [Branches: main vs develop](Coding-Guidelines/develop-branch.md)
+- [Error Handling and Logging](Coding-Guidelines/ErrorHandlingAndLogging.md)
 - [Experimental](Coding-Guidelines/Experimental.md)-only features
   - Use [TerminalVelocity](Coding-Guidelines/TerminalVelocity.md) tag and disable features
-- [Git Checkin-to-main Policy](Coding-Guidelines/GitCheckinToMainPolicy.md)
 - [Hybrid CRT](Coding-Guidelines/HybridCRT.md)
 - Languages (This list is non-exhaustive; new guidelines for languages will be added over time)
   - [C++](Coding-Guidelines/Languages-CPP.md)

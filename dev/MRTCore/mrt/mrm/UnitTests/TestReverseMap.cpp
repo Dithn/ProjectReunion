@@ -15,7 +15,7 @@ using namespace WEX::Logging;
 namespace UnitTests
 {
 
-TestReverseFileMap::TestReverseFileMap() : m_build(), m_pPriBuilder(NULL), m_pReverseFileMapBuilder(NULL), m_pReverseFileMap(NULL) {}
+TestReverseFileMap::TestReverseFileMap() : m_build(), m_pPriBuilder(NULL), m_pReverseFileMapBuilder(NULL), m_pReverseFileMap(NULL), m_pTestDI(nullptr), m_testDI(), m_pDecisionInfo(nullptr) {}
 
 HRESULT
 TestReverseFileMap::InitFromTestVars(__in PriSectionBuilder* pPriBuilder, __in UnifiedEnvironment* pEnvironment, __in PCWSTR pVarPrefix)
@@ -147,7 +147,7 @@ TestReverseFileMap::VerifyAllAgainstTestVars(
         for (unsigned iSpec = 0; iSpec < specs.GetSize(); iSpec++)
         {
             Log::Comment(tmp.Format(L"[ Candidate %d: %s ]", iSpec, (PCWSTR)specs[iSpec]));
-            if (FAILED(spec.InitFromList(specs[iSpec])))
+            if (!spec.InitFromList(specs[iSpec]))
             {
                 Log::Warning(tmp.Format(L"[ Error parsing spec %d in %sExpectedCandidateInfo ]", iSpec, pVarPrefix));
                 continue;
